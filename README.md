@@ -19,6 +19,29 @@ and https://github.com/BlackFrogKok/BunnyACE
 
 Connect them to a regular USB, no dark magic is required.
 
+## Установка
+- Клонируем репо: git clone https://github.com/agrloki/ValgACE.git
+- Заходим в каталог: cd ~/ValgACE
+- Выполняем: chmod +x ./install.sh
+- Запускаем установку: ./install.sh
+
+Скрипт выполнит все необходимые действия. На данный момент прописывание в апдейт менеджер moonraker отключено. 
+Поскольку драйвер в процессе отладки и возможно много изменений версий которые ставить совсем не надо:)
+
+##Installation
+- Clone the repository:
+    git clone https://github.com/agrloki/ValgACE.git
+
+- Navigate to the directory:
+    cd ~/ValgACE
+
+- Make the script executable:
+    chmod +x ./install.sh
+
+- Run the installation:
+    ./install.sh
+
+The script will perform all necessary actions. Currently, automatic registration with Moonraker's update manager is disabled since the driver is under active development and may undergo frequent version changes that shouldn't necessarily be installed automatically :)
 
 ## Доступные команды:
 - ACE_STATUS                               Получить статус
