@@ -30,5 +30,5 @@ Connect them to a regular USB, no dark magic is required.
 - ACE_PARK_TO_TOOLHEAD INDEX=0 - 3         Припарковать филамент к голове индекс указывает какой порт будет припаркован
 - ACE_FEED INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи>     Подача филамента
 - ACE_RETRACT INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи>  Откат филамента
-- ACE_CHANGE_TOOL TOOL=-1 - 0 - 3          Смена инструмента. (Не работает пока не настроены макросы в ace.cfg)
+- ACE_CHANGE_TOOL TOOL=-1 - 0 - 3          Смена инструмента. 
 - ACE_FILAMENT_INFO                        Информация о филаменте если есть rfid метка
