@@ -673,7 +673,7 @@ class ValgAce:
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         
         if self._info['slots'][index]['status'] != 'ready':
-            gcmd.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={index}")
+            self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={index}")
             return
 
         self._park_to_toolhead(index)
@@ -731,14 +731,14 @@ class ValgAce:
             return
         
         if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
-            gcmd.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
+            self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
             return
 
-        gcmd.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
+        self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
         self._park_is_toolchange = True
         self._park_previous_tool = was
         self.variables['ace_current_index'] = tool
-        gcmd.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
+        self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
 
         def callback(response):
             if response.get('code', 0) != 0:
@@ -761,9 +761,9 @@ class ValgAce:
             self.dwell(0.25)
 
             if tool != -1:
-                gcmd.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+                self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
             else:
-                gcmd.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
         else:
             self._park_to_toolhead(tool)
 
