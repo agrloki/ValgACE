@@ -10,7 +10,7 @@ import traceback
 from typing import Optional, Dict, Any, Callable
 from serial import SerialException
 
-class BunnyAce:
+class ValgAce:
     def __init__(self, config):
         self.printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
@@ -768,4 +768,4 @@ class BunnyAce:
             self._park_to_toolhead(tool)
 
 def load_config(config):
-    return BunnyAce(config)
+    return ValgAce(config)

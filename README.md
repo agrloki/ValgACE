@@ -1,6 +1,9 @@
-# DuckACE
+# ValgACE
 
 A Work-In-Progress driver for Anycubic Color Engine Pro for Klipper
+Драйвер для Anycubic Color Engine Pro под Klipper, на данный момент статус в разработке.
+Based on https://github.com/utkabobr/DuckACE
+and https://github.com/BlackFrogKok/BunnyACE
 
 ## Pinout
 

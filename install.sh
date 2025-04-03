@@ -134,7 +134,7 @@ add_updater()
         echo "type: git_repo" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
         echo "path: ${SRCDIR}" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
         echo "primary_branch: master" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
-        echo "origin: https://github.com/BlackFrogKok/BunnyACE" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
+        echo "origin: https://github.com/agrloki/ValgACE.git" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
         echo "managed_services: klipper" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
         echo -e "\n" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
         echo "[OK]"
