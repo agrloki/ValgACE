@@ -28,7 +28,7 @@ Connect them to a regular USB, no dark magic is required.
 Скрипт выполнит все необходимые действия. На данный момент прописывание в апдейт менеджер moonraker отключено. 
 Поскольку драйвер в процессе отладки и возможно много изменений версий которые ставить совсем не надо:)
 
-##Installation
+## Installation
 - Clone the repository:
     git clone https://github.com/agrloki/ValgACE.git
 
@@ -55,3 +55,37 @@ The script will perform all necessary actions. Currently, automatic registration
 - ACE_RETRACT INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи>  Откат филамента
 - ACE_CHANGE_TOOL TOOL=-1 - 0 - 3          Смена инструмента. 
 - ACE_FILAMENT_INFO                        Информация о филаменте если есть rfid метка
+
+## Available Commands:
+
+- ACE_STATUS - Get device status
+
+- ACE_START_DRYING TEMP=50 DURATION=120 - Dry filament for 2 hours at 50°C
+
+- ACE_STOP_DRYING - Stop drying process
+
+- ACE_DEBUG - Check connection
+
+- ACE_ENABLE_FEED_ASSIST INDEX=0-3 - Enable filament feed assist for specified port
+
+- ACE_DISABLE_FEED_ASSIST INDEX=0-3 - Disable filament feed assist for specified port
+
+- ACE_PARK_TO_TOOLHEAD INDEX=0-3 - Park filament to toolhead (specify port index)
+
+- ACE_FEED INDEX=0-3 LENGTH=<feed_length> SPEED=<feed_speed> - Feed filament
+
+- ACE_RETRACT INDEX=0-3 LENGTH=<retract_length> SPEED=<retract_speed> - Retract filament
+
+- ACE_CHANGE_TOOL TOOL=-1/0/1/2/3 - Change tool (use -1 for no tool)
+
+- ACE_FILAMENT_INFO - Show filament information (if RFID tag is present)
+
+Key notes:
+
+All indexes (ports) range from 0 to 3
+
+Tool selection accepts values from -1 (no tool) to 3
+
+Feed/retract commands require length and speed parameters
+
+RFID information is only available for tagged filaments
