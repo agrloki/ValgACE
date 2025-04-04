@@ -20,6 +20,7 @@ and https://github.com/BlackFrogKok/BunnyACE
 Connect them to a regular USB, no dark magic is required.
 
 ## Установка
+## Инсталлятор не работает корректно. Работаю над исправлнием.
 - Клонируем репо: git clone https://github.com/agrloki/ValgACE.git
 - Заходим в каталог: cd ~/ValgACE
 - Выполняем: chmod +x ./install.sh
@@ -30,6 +31,7 @@ Connect them to a regular USB, no dark magic is required.
 Поскольку драйвер в процессе отладки и возможно много изменений версий которые ставить совсем не надо:)
 
 ## Installation
+## The installer is not working properly. I'm working on fixing it.
 - Clone the repository:
     git clone https://github.com/agrloki/ValgACE.git
 
