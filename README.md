@@ -44,14 +44,14 @@ Connect them to a regular USB, no dark magic is required.
 
 - Add this include statement to printer.cfg:
      [include ace.cfg]
-     
+
 The script will perform all necessary actions. Currently, automatic registration with Moonraker's update manager is disabled since the driver is under active development and may undergo frequent version changes that shouldn't necessarily be installed automatically :)
 
 ## Доступные команды:
 - ACE_STATUS                               Получить статус
 - ACE_START_DRYING TEMP=50 DURATION=120    Сушить 2 часа при 50°C
 - ACE_STOP_DRYING                          Остановить сушку
-- ACE_DEBUG                                Проверить подключение
+- ACE_DEBUG  METHOD=<запрос> (get_status, get_info)  Проверить подключение
 - ACE_ENABLE_FEED_ASSIST INDEX=0 - 3       Включить помощь подачи филамента для конкретного порта
 - ACE_DISABLE_FEED_ASSIST INDEX=0 - 3      Выключить помощь подачи филамента для конкретного порта
 - ACE_PARK_TO_TOOLHEAD INDEX=0 - 3         Припарковать филамент к голове индекс указывает какой порт будет припаркован
@@ -68,7 +68,7 @@ The script will perform all necessary actions. Currently, automatic registration
 
 - ACE_STOP_DRYING - Stop drying process
 
-- ACE_DEBUG - Check connection
+- ACE_DEBUG METHOD=<query> (get_status, get_info)- Check connection
 
 - ACE_ENABLE_FEED_ASSIST INDEX=0-3 - Enable filament feed assist for specified port
 
