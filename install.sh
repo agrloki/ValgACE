@@ -91,7 +91,7 @@ uninstall()
         echo -n "Uninstalling... "
         rm -f "${KLIPPER_HOME}/klippy/extras/ace.py"
         echo "[OK]"
-        echo "You can now remove the [update_manager FrogAce] section in your moonraker.conf and delete this directory. Also remove all led_effect configurations from your Klipper configuration."
+        echo "You can now remove the [update_manager ValgAce] section in your moonraker.conf and delete this directory. Also remove all led_effect configurations from your Klipper configuration."
     else
         echo "ace.py not found in \"${KLIPPER_HOME}/klippy/extras/\". Is it installed?"
         echo "[FAILED]"
@@ -128,9 +128,9 @@ add_updater()
 {
     echo -n "Adding update manager to moonraker.conf... "
     update_section=0
-    update_section=$(grep -c '\[update_manager[a-z ]* BunnyACE\]' "${MOONRAKER_CONFIG_DIR}/moonraker.conf" || true)
+    update_section=$(grep -c '\[update_manager[a-z ]* ValgACE\]' "${MOONRAKER_CONFIG_DIR}/moonraker.conf" || true)
     if [ "$update_section" -eq 0 ]; then
-        echo -e "\n[update_manager BunnyACE]" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
+        echo -e "\n[update_manager ValgACE]" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
         echo "type: git_repo" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
         echo "path: ${SRCDIR}" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
         echo "primary_branch: master" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf"
