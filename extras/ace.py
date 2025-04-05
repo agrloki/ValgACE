@@ -507,7 +507,7 @@ class ValgAce:
         # Отправляем команду остановки
         self.send_request({
             "method": "stop_feed_assist",
-            "params": {"index": self._feed_assist_index}
+            "params": {"index": self._park_index}
         }, lambda r: None)
         
         # Выполняем пост-обработку
