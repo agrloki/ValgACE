@@ -78,6 +78,12 @@ class ValgAce:
 
     def _init_logging(self, config):
         """Инициализация системы логирования"""
+        disable_logging = config.getboolean('disable_logging', False)
+        if disable_logging:
+            self.logger = logging.getLogger('ace')
+            self.logger.addHandler(logging.NullHandler())
+            return
+            
         log_dir = config.get('log_dir', '/var/log/ace')
         log_level = config.get('log_level', 'INFO').upper()
         max_log_size = config.getint('max_log_size', 10) * 1024 * 1024
@@ -433,44 +439,54 @@ class ValgAce:
                     self.logger.error(f"Callback error: {str(e)}")
         
         if 'result' in response and isinstance(response['result'], dict):
-            self._info.update(response['result'])
-
-    def _writer_loop(self):
-        """Оптимизированный цикл записи"""
-        while getattr(self, '_connected', False):
-            try:
-                now = time.time()
-                if now - self._last_status_request > 1.0:
-                    self._request_status()
-                    self._last_status_request = now
+            result = response['result']
+            self._info.update(result)
+            
+            # Track feed assist count during parking
+            if self._park_in_progress and 'feed_assist_count' in result:
+                current_count = result['feed_assist_count']
+                if current_count != self._last_assist_count:
+                    if current_count == 0:
+                        self._assist_hit_count = 0
+                    else:
+                        self._assist_hit_count += (current_count - self._last_assist_count)
+                    self._last_assist_count = current_count
                     
-                if not self._queue.empty():
-                    task = self._queue.get_nowait()
-                    if task:
-                        request, callback = task
-                        self._callback_map[request['id']] = callback
-                        if not self._send_request(request):
-                            continue
-                
-                time.sleep(0.05)
-            except SerialException:
-                self.logger.error("Serial write error")
-                if self._connected:
-                    self._reconnect()
-            except Exception as e:
-                self.logger.error(f"Writer loop error: {str(e)}")
-                time.sleep(0.5)
+                    self.logger.debug(f"Feed assist count: {current_count}, hits: {self._assist_hit_count}")
+                    
+                    if self._assist_hit_count >= self.park_hit_count:
+                        self._park_in_progress = False
+                        self.logger.info(f"Parking completed for slot {self._park_index}")
+                        
+                        if self._park_is_toolchange:
+                            self.gcode.run_script_from_command(
+                                f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}'
+                            )
+                            self._park_is_toolchange = False
+                            self._park_previous_tool = -1
+                        
+                        self._park_index = -1
+                        self.send_request({
+                            "method": "stop_feed_assist",
+                            "params": {"index": self._feed_assist_index}
+                        }, lambda r: None)
+                        if self.disable_assist_after_toolchange:
+                            self._feed_assist_index = -1
 
     def _request_status(self):
         """Запрос статуса устройства"""
         def status_callback(response):
             if 'result' in response:
-                self._info = response['result']
+                self._info.update(response['result'])
         
-        self.send_request({
-            "id": self._get_next_request_id(),
-            "method": "get_status"
-        }, status_callback)
+        # Request more frequently during parking
+        interval = 0.2 if self._park_in_progress else 1.0
+        if time.time() - self._last_status_request > interval:
+            self.send_request({
+                "id": self._get_next_request_id(),
+                "method": "get_status"
+            }, status_callback)
+            self._last_status_request = time.time()
 
     def _main_eval(self, eventtime):
         """Обработка задач в основном потоке"""
