@@ -487,6 +487,39 @@ class ValgAce:
                 "method": "get_status"
             }, status_callback)
             self._last_status_request = time.time()
+ 
+    def _writer_loop(self):
+        """Безопасный цикл записи"""
+        while getattr(self, '_connected', False):
+            try:
+                if not self._queue.empty():
+                    task = self._queue.get_nowait()
+                    if task:
+                        request, callback = task
+                        self._callback_map[request['id']] = callback
+                        if not self._send_request(request):
+                            continue
+                
+                # Периодический запрос статуса
+                def status_callback(response):
+                    if 'result' in response:
+                        self._info = response['result']
+                
+                self.send_request({
+                    "id": self._request_id,
+                    "method": "get_status"
+                }, status_callback)
+                
+                # Безопасная задержка
+                time.sleep(0.25 if not self._park_in_progress else 0.68)
+
+            except SerialException:
+                self.logger.error("Serial write error")
+                if self._connected:
+                    self._reconnect()
+            except Exception as e:
+                self.logger.error(f"Writer loop error: {str(e)}")
+                time.sleep(1)
 
     def _main_eval(self, eventtime):
         """Обработка задач в основном потоке"""
