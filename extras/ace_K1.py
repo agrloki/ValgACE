@@ -69,7 +69,7 @@ class ValgAce:
         self._register_gcode_commands()
 
         # Подключение устройства
-        self.reactor.register_callback(self._handle_ready)
+        self.reactor.register_callback(self._handle_connect)
 
     def _init_logging(self, config):
         """Инициализация системы логирования"""
@@ -105,12 +105,12 @@ class ValgAce:
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(logging.Formatter(log_format, date_format))
         
-        logger = logging.getLogger()
+        logger = logging.getLogger('ace')
         logger.setLevel(getattr(logging, log_level, logging.INFO))
         logger.addHandler(file_handler)
         logger.addHandler(console_handler)
         
-        self.logger = logging.getLogger('ace')
+        self.logger = logger
         self.logger.info("ACE logging initialized")
 
     def _find_ace_device(self) -> Optional[str]:
@@ -224,6 +224,21 @@ class ValgAce:
         
         self.logger.error("Failed to connect to ACE device")
         return False
+
+    def _handle_connect(self, eventtime):
+        """Обработчик первоначального подключения"""
+        if not self._connect():
+            self.logger.error("Failed to connect to ACE on startup")
+        return eventtime + 1.0
+
+    def _handle_ready(self, eventtime):
+        """Обработчик готовности Klipper"""
+        return eventtime + 1.0
+
+    def _handle_disconnect(self, eventtime):
+        """Обработчик отключения Klipper"""
+        self._disconnect()
+        return eventtime + 1.0
 
     def _reader_loop(self, eventtime):
         """Цикл чтения данных с устройства"""
@@ -350,16 +365,6 @@ class ValgAce:
                 "method": "get_status"
             }, status_callback)
             self._last_status_request = self.reactor.monotonic()
-
-    def _handle_ready(self):
-        """Обработчик готовности Klipper"""
-        if not self._connect():
-            self.logger.error("Failed to connect to ACE on startup")
-            return
-
-    def _handle_disconnect(self):
-        """Обработчик отключения Klipper"""
-        self._disconnect()
 
     def send_request(self, request: Dict[str, Any], callback: Callable):
         """Отправка запроса к устройству"""
