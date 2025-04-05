@@ -69,7 +69,7 @@ class ValgAce:
         self._register_gcode_commands()
 
         # Подключение устройства
-        self.reactor.register_callback(self._handle_connect)
+        self.reactor.register_callback(self._attempt_initial_connection)
 
     def _init_logging(self, config):
         """Инициализация системы логирования"""
@@ -159,8 +159,8 @@ class ValgAce:
 
     def _register_handlers(self):
         """Регистрация системных обработчиков"""
-        self.printer.register_event_handler('klippy:ready', self._handle_ready)
-        self.printer.register_event_handler('klippy:disconnect', self._handle_disconnect)
+        self.printer.register_event_handler("klippy:ready", self._handle_ready_event)
+        self.printer.register_event_handler("klippy:disconnect", self._handle_disconnect_event)
 
     def _register_gcode_commands(self):
         """Регистрация всех команд G-Code"""
@@ -180,6 +180,22 @@ class ValgAce:
         
         for name, func, desc in commands:
             self.gcode.register_command(name, func, desc=desc)
+
+    def _attempt_initial_connection(self, eventtime):
+        """Попытка первоначального подключения"""
+        if not self._connect():
+            self.logger.error("Failed to connect to ACE on startup")
+        return eventtime + 1.0
+
+    def _handle_ready_event(self):
+        """Обработчик события готовности Klipper"""
+        self.logger.info("Klippy ready event received")
+        self._request_status()
+
+    def _handle_disconnect_event(self):
+        """Обработчик события отключения Klipper"""
+        self.logger.info("Klippy disconnect event received")
+        self._disconnect()
 
     @contextmanager
     def _serial_lock(self):
@@ -224,21 +240,6 @@ class ValgAce:
         
         self.logger.error("Failed to connect to ACE device")
         return False
-
-    def _handle_connect(self, eventtime):
-        """Обработчик первоначального подключения"""
-        if not self._connect():
-            self.logger.error("Failed to connect to ACE on startup")
-        return eventtime + 1.0
-
-    def _handle_ready(self, eventtime):
-        """Обработчик готовности Klipper"""
-        return eventtime + 1.0
-
-    def _handle_disconnect(self, eventtime):
-        """Обработчик отключения Klipper"""
-        self._disconnect()
-        return eventtime + 1.0
 
     def _reader_loop(self, eventtime):
         """Цикл чтения данных с устройства"""
