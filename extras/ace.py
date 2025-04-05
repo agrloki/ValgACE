@@ -468,41 +468,63 @@ class ValgAce:
             result = response['result']
             self._info.update(result)
             
-            # Track feed assist count during parking
-            if self._park_in_progress and 'feed_assist_count' in result:
-                current_count = result['feed_assist_count']
-                if current_count != self._last_assist_count:
-                    if current_count == 0:
+            # Добавляем логирование для отладки
+            self.logger.debug(f"Received response: {response}")
+            
+            # Обработка парковки филамента
+            if self._park_in_progress:
+                current_status = result.get('status', 'unknown')
+                current_assist_count = result.get('feed_assist_count', 0)
+                
+                self.logger.debug(f"Parking status: {current_status}, assist count: {current_assist_count}, last count: {self._last_assist_count}, hits: {self._assist_hit_count}")
+                
+                if current_status == 'ready':
+                    if current_assist_count != self._last_assist_count:
+                        # Если счетчик изменился - филамент движется
+                        self._last_assist_count = current_assist_count
                         self._assist_hit_count = 0
+                        self.logger.debug("Filament moving - reset hit counter")
                     else:
-                        self._assist_hit_count += (current_count - self._last_assist_count)
-                    self._last_assist_count = current_count
-                    
-                    self.logger.debug(f"Feed assist count: {current_count}, hits: {self._assist_hit_count}")
-                    
-                    if self._assist_hit_count >= self.park_hit_count:
-                        self.send_request({
-                            "method": "stop_feed_assist",
-                            "params": {"index": self._park_index}
-                        }, lambda r: None)
-                        self._park_in_progress = False
-                        self.logger.info(f"Parking completed for slot {self._park_index}")
+                        # Если счетчик не изменился - возможно, филамент уперся
+                        self._assist_hit_count += 1
+                        self.logger.debug(f"Possible filament hit detected ({self._assist_hit_count}/{self.park_hit_count})")
                         
-                        if self._park_is_toolchange:
-                            self.gcode.run_script_from_command(
-                                f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}'
-                            )
-                            self._park_is_toolchange = False
-                            self._park_previous_tool = -1
+                        if self._assist_hit_count >= self.park_hit_count:
+                            self.logger.debug("Parking complete - hit threshold reached")
+                            self._complete_parking()
+                            return
+                    
+                    # Продолжаем парковку
+                    self.dwell(0.7, True)
                         
-                        self._park_index = -1
-                        self.send_request({
-                            "method": "stop_feed_assist",
-                            "params": {"index": self._feed_assist_index}
-                        }, lambda r: None)
-                        if self.disable_assist_after_toolchange:
-                            self._feed_assist_index = -1
-
+    def _complete_parking(self):
+        """Завершение процесса парковки"""
+        if not self._park_in_progress:
+            return
+            
+        self.logger.info(f"Parking completed for slot {self._park_index}")
+        
+        # Отправляем команду остановки
+        self.send_request({
+            "method": "stop_feed_assist",
+            "params": {"index": self._feed_assist_index}
+        }, lambda r: None)
+        
+        # Выполняем пост-обработку
+        if self._park_is_toolchange:
+            self.gcode.run_script_from_command(
+                f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}'
+            )
+        
+        # Сбрасываем состояние
+        self._park_in_progress = False
+        self._park_is_toolchange = False
+        self._park_previous_tool = -1
+        self._park_index = -1
+        
+        if self.disable_assist_after_toolchange:
+            self._feed_assist_index = -1
+            
     def _request_status(self):
         """Запрос статуса устройства"""
         def status_callback(response):
@@ -744,11 +766,12 @@ class ValgAce:
                 self.logger.error(f"Failed to park to toolhead: {response.get('msg', 'Unknown error')}")
                 raise ValueError(f"ACE Error: {response.get('msg', 'Unknown error')}")
             
+            # Сбрасываем счетчики перед началом парковки
             self._assist_hit_count = 0
-            self._last_assist_count = 0
+            self._last_assist_count = response.get('result', {}).get('feed_assist_count', 0)
             self._park_in_progress = True
             self._park_index = index
-            self.logger.info(f"Parking to toolhead started for slot {index}")
+            self.logger.info(f"Parking to toolhead started for slot {index}, initial count: {self._last_assist_count}")
             self.dwell(0.3)
 
         self.send_request({
