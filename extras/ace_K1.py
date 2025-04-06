@@ -6,6 +6,7 @@ import logging
 import logging.handlers
 import json
 import struct
+import queue
 from typing import Optional, Dict, Any, Callable
 from serial import SerialException
 from contextlib import contextmanager
@@ -33,6 +34,7 @@ class ValgAce:
         self._response_timeout = config.getfloat('response_timeout', 2.0)
         self._read_timeout = config.getfloat('read_timeout', 0.1)
         self._write_timeout = config.getfloat('write_timeout', 0.5)
+        self._max_queue_size = config.getint('max_queue_size', 20)
 
         # Автопоиск устройства
         default_serial = self._find_ace_device()
@@ -64,12 +66,17 @@ class ValgAce:
         self._park_previous_tool = -1
         self._park_index = -1
         
+        # Очереди и потоки
+        self._queue = queue.Queue(maxsize=self._max_queue_size)
+        self._main_queue = queue.Queue()
+        
         # Инициализация
         self._register_handlers()
         self._register_gcode_commands()
 
         # Подключение устройства
         self.reactor.register_callback(self._attempt_initial_connection)
+        self.reactor.register_timer(self._process_queue, self.reactor.NOW)
 
     def _init_logging(self, config):
         """Инициализация системы логирования"""
@@ -185,7 +192,35 @@ class ValgAce:
         """Попытка первоначального подключения"""
         if not self._connect():
             self.logger.error("Failed to connect to ACE on startup")
-        return eventtime + 1.0
+            return eventtime + 5.0  # Повторная попытка через 5 секунд
+        return self.reactor.NEVER
+
+    def _process_queue(self, eventtime):
+        """Обработка очереди запросов"""
+        try:
+            now = self.reactor.monotonic()
+            if now - self._last_status_request > 1.0:
+                self._request_status()
+                self._last_status_request = now
+                
+            if not self._queue.empty():
+                task = self._queue.get_nowait()
+                if task:
+                    request, callback = task
+                    self._callback_map[request['id']] = callback
+                    self._send_request(request)
+                    
+            # Обработка задач в основном потоке
+            while not self._main_queue.empty():
+                task = self._main_queue.get_nowait()
+                if task:
+                    task()
+                    
+            return eventtime + 0.05
+            
+        except Exception as e:
+            self.logger.error(f"Queue processing error: {str(e)}")
+            return eventtime + 1.0
 
     def _handle_ready_event(self):
         """Обработчик события готовности Klipper"""
@@ -228,7 +263,7 @@ class ValgAce:
                     def info_callback(response):
                         res = response['result']
                         self.logger.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-                        self.gcode.respond_info(f"Connected {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
+                        self.gcode.respond_raw(f"Connected {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
                     
                     self.send_request({"method": "get_info"}, info_callback)
                     
@@ -340,9 +375,8 @@ class ValgAce:
         
         # Выполняем пост-обработку
         if self._park_is_toolchange:
-            self.gcode.run_script_from_command(
-                f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}'
-            )
+            self._run_in_main_thread(
+                f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}')
         
         # Сбрасываем состояние
         self._park_in_progress = False
@@ -367,7 +401,7 @@ class ValgAce:
             }, status_callback)
             self._last_status_request = self.reactor.monotonic()
 
-    def send_request(self, request: Dict[str, Any], callback: Callable):
+    def _send_request(self, request: Dict[str, Any]) -> bool:
         """Отправка запроса к устройству"""
         with self._serial_lock():
             try:
@@ -389,18 +423,29 @@ class ValgAce:
                 
                 if not hasattr(self, '_serial') or not self._serial.is_open:
                     if not self._reconnect():
-                        return
+                        return False
                 
                 self._serial.write(packet)
                 self.send_time = self.reactor.monotonic()
-                self._callback_map[request['id']] = callback
                 self.logger.debug(f"Request {request['id']} sent")
+                return True
                 
             except SerialException as e:
                 self.logger.error(f"Send error: {str(e)}")
                 self._reset_connection()
+                return False
             except Exception as e:
                 self.logger.error(f"Unexpected send error: {str(e)}")
+                return False
+
+    def send_request(self, request: Dict[str, Any], callback: Callable):
+        """Отправка запроса к устройству через очередь"""
+        if self._queue.qsize() >= self._max_queue_size:
+            self.logger.warning("Request queue overflow, clearing...")
+            self._queue = queue.Queue(maxsize=self._max_queue_size)
+            
+        request['id'] = self._get_next_request_id()
+        self._queue.put((request, callback))
 
     def _get_next_request_id(self) -> int:
         """Генерация ID запроса"""
@@ -427,10 +472,10 @@ class ValgAce:
     def _reset_connection(self):
         """Сброс соединения"""
         self._disconnect()
-        self.reactor.pause(self.reactor.monotonic() + 2.0)  # Увеличенная задержка
+        self.reactor.pause(self.reactor.monotonic() + 2.0)
         if hasattr(self, '_serial'):
             try:
-                self._serial.reset_input_buffer()  # Очистка буферов
+                self._serial.reset_input_buffer()
                 self._serial.reset_output_buffer()
             except:
                 pass
@@ -449,13 +494,31 @@ class ValgAce:
         except:
             pass
 
+    def _run_in_main_thread(self, script):
+        """Выполнение скрипта в основном потоке Klipper"""
+        def task():
+            self.gcode.run_script_from_command(script)
+        self._main_queue.put(task)
+
+    def dwell(self, delay: float = 1.0, on_main: bool = False):
+        """Пауза с возможностью выполнения в основном потоке"""
+        if on_main:
+            def main_callback():
+                toolhead = self.printer.lookup_object('toolhead')
+                toolhead.dwell(delay)
+            self._main_queue.put(main_callback)
+        else:
+            toolhead = self.printer.lookup_object('toolhead')
+            toolhead.dwell(delay)
+
     # ==================== G-CODE COMMANDS ====================
 
     cmd_ACE_STATUS_help = "Get current device status"
     def cmd_ACE_STATUS(self, gcmd):
         """Обработчик команды ACE_STATUS"""
         status = json.dumps(self._info, indent=2)
-        gcmd.respond_info(f"ACE Status:\n{status}")
+        gcmd.respond_raw(f"ACE Status:\n{status}")
+        self.logger.info(f"Status requested:\n{status}")
 
     cmd_ACE_DEBUG_help = "Debug ACE connection"
     def cmd_ACE_DEBUG(self, gcmd):
@@ -463,12 +526,14 @@ class ValgAce:
         method = gcmd.get('METHOD')
         params = gcmd.get('PARAMS', '{}')
         
-        response_event = self.reactor.event()
+        # Альтернатива reactor.event() для Klipper
+        response_received = False
         response_data = [None]
 
         def callback(response):
             response_data[0] = response
-            response_event.set()
+            nonlocal response_received
+            response_received = True
 
         try:
             request = {"method": method}
@@ -476,60 +541,97 @@ class ValgAce:
                 try:
                     request["params"] = json.loads(params)
                 except json.JSONDecodeError:
-                    gcmd.respond_error("Invalid PARAMS format")
+                    gcmd.respond_raw("!! Invalid PARAMS format")
+                    self.logger.error("Invalid PARAMS format in debug command")
                     return
 
             self.send_request(request, callback)
-            if not response_event.wait(self._response_timeout):
-                gcmd.respond_error("Timeout waiting for response")
+            self.logger.debug(f"Debug command sent: {request}")
+
+            # Ждем ответа с таймаутом
+            start_time = time.time()
+            while not response_received and (time.time() - start_time) < self._response_timeout:
+                self.reactor.pause(self.reactor.monotonic() + 0.05)
+
+            if not response_received:
+                gcmd.respond_raw("!! Timeout waiting for response")
+                self.logger.error("Timeout waiting for debug response")
                 return
 
             response = response_data[0]
             if response is None:
-                gcmd.respond_error("No response received")
+                gcmd.respond_raw("!! No response received")
+                self.logger.error("No response received for debug command")
                 return
 
-            gcmd.respond_info(json.dumps(response, indent=2))
+            if method in ["get_info", "get_status"] and 'result' in response:
+                result = response['result']
+                output = []
+                
+                if method == "get_info":
+                    output.append("=== Device Info ===")
+                    output.append(f"Model: {result.get('model', 'Unknown')}")
+                    output.append(f"Firmware: {result.get('firmware', 'Unknown')}")
+                    output.append(f"Hardware: {result.get('hardware', 'Unknown')}")
+                    output.append(f"Serial: {result.get('serial', 'Unknown')}")
+                else:
+                    output.append("=== Status ===")
+                    output.append(f"State: {result.get('status', 'Unknown')}")
+                    output.append(f"Temperature: {result.get('temp', 'Unknown')}")
+                    output.append(f"Fan Speed: {result.get('fan_speed', 'Unknown')}")
+                    
+                    for slot in result.get('slots', []):
+                        output.append(f"\nSlot {slot.get('index', '?')}:")
+                        output.append(f"  Status: {slot.get('status', 'Unknown')}")
+                        output.append(f"  Type: {slot.get('type', 'Unknown')}")
+                        output.append(f"  Color: {slot.get('color', 'Unknown')}")
+                
+                gcmd.respond_raw("\n".join(output))
+                self.logger.info("\n".join(output))
+            else:
+                gcmd.respond_raw(json.dumps(response, indent=2))
+                self.logger.info(f"Debug response: {json.dumps(response, indent=2)}")
 
         except Exception as e:
-            gcmd.respond_error(f"Error: {str(e)}")
+            gcmd.respond_raw(f"!! Error: {str(e)}")
+            self.logger.error(f"Debug command error: {str(e)}")
 
     cmd_ACE_FILAMENT_INFO_help = 'ACE_FILAMENT_INFO INDEX='
     def cmd_ACE_FILAMENT_INFO(self, gcmd):
         """Handler for ACE_FILAMENT_INFO command"""
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
-        
-        if not self._connected:
-            gcmd.respond_error("ACE device not connected")
-            return
+        try:
+            def callback(response):
+                if 'result' in response:
+                    slot_info = response['result']
+                    gcmd.respond_raw(str(slot_info))
+                    self.logger.info(f'Filament slot {index} status: {slot_info}')
+                else:
+                    gcmd.respond_raw("!! Error: No result in response")
+                    self.logger.error(f'No result in response for slot {index}')
 
-        def callback(response):
-            if 'result' in response:
-                slot_info = response['result']
-                gcmd.respond_info(str(slot_info))
-            else:
-                gcmd.respond_error('Error: No result in response')
-
-        self.send_request(
-            request={"method": "get_filament_info", "params": {"index": index}},
-            callback=callback
-        )
+            self.send_request(
+                request={"method": "get_filament_info", "params": {"index": index}},
+                callback=callback
+            )
+            self.logger.debug(f"Requested filament info for slot {index}")
+        except Exception as e:
+            gcmd.respond_raw(f"!! Error: {str(e)}")
+            self.logger.error(f"Filament info error for slot {index}: {str(e)}")
 
     cmd_ACE_START_DRYING_help = "Start filament drying"
     def cmd_ACE_START_DRYING(self, gcmd):
         """Обработчик команды ACE_START_DRYING"""
-        if not self._connected:
-            gcmd.respond_error("ACE device not connected")
-            return
-
         temperature = gcmd.get_int('TEMP', minval=20, maxval=self.max_dryer_temperature)
         duration = gcmd.get_int('DURATION', 240, minval=1)
 
         def callback(response):
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"!! ACE Error: {response.get('msg', 'Unknown error')}")
+                self.logger.error(f"Failed to start drying: {response.get('msg', 'Unknown error')}")
             else:
-                gcmd.respond_info(f"Drying started at {temperature}°C for {duration} minutes")
+                gcmd.respond_raw(f"Drying started at {temperature}°C for {duration} minutes")
+                self.logger.info(f"Drying started at {temperature}°C for {duration} minutes")
 
         self.send_request({
             "method": "drying",
@@ -539,123 +641,114 @@ class ValgAce:
                 "duration": duration * 60
             }
         }, callback)
+        self.logger.debug(f"Start drying command: {temperature}°C for {duration} minutes")
 
     cmd_ACE_STOP_DRYING_help = "Stop filament drying"
     def cmd_ACE_STOP_DRYING(self, gcmd):
         """Обработчик команды ACE_STOP_DRYING"""
-        if not self._connected:
-            gcmd.respond_error("ACE device not connected")
-            return
-
         def callback(response):
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"!! ACE Error: {response.get('msg', 'Unknown error')}")
+                self.logger.error(f"Failed to stop drying: {response.get('msg', 'Unknown error')}")
             else:
-                gcmd.respond_info("Drying stopped")
+                gcmd.respond_raw("Drying stopped")
+                self.logger.info("Drying stopped")
 
         self.send_request({"method": "drying_stop"}, callback)
+        self.logger.debug("Stop drying command")
 
     cmd_ACE_ENABLE_FEED_ASSIST_help = "Enable feed assist"
     def cmd_ACE_ENABLE_FEED_ASSIST(self, gcmd):
         """Обработчик команды ACE_ENABLE_FEED_ASSIST"""
-        if not self._connected:
-            gcmd.respond_error("ACE device not connected")
-            return
-
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
 
         def callback(response):
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"!! ACE Error: {response.get('msg', 'Unknown error')}")
+                self.logger.error(f"Failed to enable feed assist for slot {index}: {response.get('msg', 'Unknown error')}")
             else:
                 self._feed_assist_index = index
-                gcmd.respond_info(f"Feed assist enabled for slot {index}")
+                gcmd.respond_raw(f"Feed assist enabled for slot {index}")
+                self.logger.info(f"Feed assist enabled for slot {index}")
+                self.dwell(0.3)
 
         self.send_request({
             "method": "start_feed_assist",
             "params": {"index": index}
         }, callback)
+        self.logger.debug(f"Enable feed assist for slot {index}")
 
     cmd_ACE_DISABLE_FEED_ASSIST_help = "Disable feed assist"
     def cmd_ACE_DISABLE_FEED_ASSIST(self, gcmd):
         """Обработчик команды ACE_DISABLE_FEED_ASSIST"""
-        if not self._connected:
-            gcmd.respond_error("ACE device not connected")
-            return
-
         index = gcmd.get_int('INDEX', self._feed_assist_index, minval=0, maxval=3)
 
         def callback(response):
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"!! ACE Error: {response.get('msg', 'Unknown error')}")
+                self.logger.error(f"Failed to disable feed assist for slot {index}: {response.get('msg', 'Unknown error')}")
             else:
                 self._feed_assist_index = -1
-                gcmd.respond_info(f"Feed assist disabled for slot {index}")
+                gcmd.respond_raw(f"Feed assist disabled for slot {index}")
+                self.logger.info(f"Feed assist disabled for slot {index}")
+                self.dwell(0.3)
 
         self.send_request({
             "method": "stop_feed_assist",
             "params": {"index": index}
         }, callback)
+        self.logger.debug(f"Disable feed assist for slot {index}")
 
     def _park_to_toolhead(self, index: int):
         """Внутренний метод парковки филамента"""
-        if not self._connected:
-            return False
-
         def callback(response):
             if response.get('code', 0) != 0:
                 self.logger.error(f"Failed to park to toolhead: {response.get('msg', 'Unknown error')}")
-                return False
+                raise ValueError(f"ACE Error: {response.get('msg', 'Unknown error')}")
             
+            # Сбрасываем счетчики перед началом парковки
             self._assist_hit_count = 0
             self._last_assist_count = response.get('result', {}).get('feed_assist_count', 0)
             self._park_in_progress = True
             self._park_index = index
-            return True
+            self.logger.info(f"Parking to toolhead started for slot {index}, initial count: {self._last_assist_count}")
+            self.dwell(0.3)
 
-        return self.send_request({
+        self.send_request({
             "method": "start_feed_assist",
             "params": {"index": index}
         }, callback)
+        self.logger.debug(f"Park to toolhead command for slot {index}")
 
     cmd_ACE_PARK_TO_TOOLHEAD_help = "Park filament to toolhead"
     def cmd_ACE_PARK_TO_TOOLHEAD(self, gcmd):
         """Обработчик команды ACE_PARK_TO_TOOLHEAD"""
-        if not self._connected:
-            gcmd.respond_error("ACE device not connected")
-            return
-
         if self._park_in_progress:
-            gcmd.respond_error("Already parking to toolhead")
+            gcmd.respond_raw("!! Already parking to toolhead")
+            self.logger.warning("Parking already in progress")
             return
 
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         
         if self._info['slots'][index]['status'] != 'ready':
-            gcmd.respond_error(f"Slot {index} is empty, cannot park")
+            self.logger.error(f"Slot {index} is empty, cannot park")
+            self._run_in_main_thread(f"_ACE_ON_EMPTY_ERROR INDEX={index}")
             return
 
-        if self._park_to_toolhead(index):
-            gcmd.respond_info(f"Parking to toolhead initiated for slot {index}")
+        self._park_to_toolhead(index)
+        self.logger.info(f"Parking to toolhead initiated for slot {index}")
 
     cmd_ACE_FEED_help = "Feed filament"
     def cmd_ACE_FEED(self, gcmd):
         """Обработчик команды ACE_FEED"""
-        if not self._connected:
-            gcmd.respond_error("ACE device not connected")
-            return
-
-        if self._park_in_progress:
-            gcmd.respond_error("Cannot feed while parking in progress")
-            return
-
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         length = gcmd.get_int('LENGTH', minval=1)
         speed = gcmd.get_int('SPEED', self.feed_speed, minval=1)
 
         def callback(response):
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"!! ACE Error: {response.get('msg', 'Unknown error')}")
+                self.logger.error(f"Failed to feed filament: {response.get('msg', 'Unknown error')}")
 
         self.send_request({
             "method": "feed_filament",
@@ -665,26 +758,20 @@ class ValgAce:
                 "speed": speed
             }
         }, callback)
-        gcmd.respond_info(f"Feeding {length}mm from slot {index} at {speed}mm/s")
+        self.logger.info(f"Feeding {length}mm from slot {index} at {speed}mm/s")
+        self.dwell((length / speed) + 0.1)
 
     cmd_ACE_RETRACT_help = "Retract filament"
     def cmd_ACE_RETRACT(self, gcmd):
         """Обработчик команды ACE_RETRACT"""
-        if not self._connected:
-            gcmd.respond_error("ACE device not connected")
-            return
-
-        if self._park_in_progress:
-            gcmd.respond_error("Cannot retract while parking in progress")
-            return
-
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         length = gcmd.get_int('LENGTH', minval=1)
         speed = gcmd.get_int('SPEED', self.retract_speed, minval=1)
 
         def callback(response):
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"!! ACE Error: {response.get('msg', 'Unknown error')}")
+                self.logger.error(f"Failed to retract filament: {response.get('msg', 'Unknown error')}")
 
         self.send_request({
             "method": "unwind_filament",
@@ -694,35 +781,36 @@ class ValgAce:
                 "speed": speed
             }
         }, callback)
-        gcmd.respond_info(f"Retracting {length}mm from slot {index} at {speed}mm/s")
+        self.logger.info(f"Retracting {length}mm from slot {index} at {speed}mm/s")
+        self.dwell((length / speed) + 0.1)
 
     cmd_ACE_CHANGE_TOOL_help = "Change tool"
     def cmd_ACE_CHANGE_TOOL(self, gcmd):
         """Обработчик команды ACE_CHANGE_TOOL"""
-        if not self._connected:
-            gcmd.respond_error("ACE device not connected")
-            return
-
         tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
         was = self.variables.get('ace_current_index', -1)
         
         if was == tool:
-            gcmd.respond_info(f"Tool already set to {tool}")
+            gcmd.respond_raw(f"Tool already set to {tool}")
+            self.logger.info(f"Tool already set to {tool}, no change needed")
             return
         
         if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
-            gcmd.respond_error(f"Slot {tool} is empty, cannot change tool")
+            self.logger.error(f"Slot {tool} is empty, cannot change tool")
+            self._run_in_main_thread(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
             return
 
-        gcmd.respond_info(f"Starting tool change from {was} to {tool}")
+        self.logger.info(f"Starting tool change from {was} to {tool}")
+        self._run_in_main_thread(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
         self._park_is_toolchange = True
         self._park_previous_tool = was
         self.variables['ace_current_index'] = tool
-        self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
+        self._run_in_main_thread(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
 
         def callback(response):
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"!! ACE Error: {response.get('msg', 'Unknown error')}")
+                self.logger.error(f"Tool change error: {response.get('msg', 'Unknown error')}")
 
         if was != -1:
             self.send_request({
@@ -733,14 +821,22 @@ class ValgAce:
                     "speed": self.retract_speed
                 }
             }, callback)
-            gcmd.respond_info(f"Retracting old tool {was}")
+            self.logger.info(f"Retracting old tool {was} with length {self.toolchange_retract_length}mm")
+            self.dwell((self.toolchange_retract_length / self.retract_speed) + 0.1)
+
+            while self._info['status'] != 'ready':
+                self.dwell(1.0)
+            
+            self.dwell(0.25)
 
             if tool != -1:
-                gcmd.respond_info(f"Loading new tool {tool}")
-                self.cmd_ACE_PARK_TO_TOOLHEAD(gcmd.create_gcode_command(
-                    "ACE_PARK_TO_TOOLHEAD", "ACE_PARK_TO_TOOLHEAD", {"INDEX": str(tool)}))
+                self.logger.info(f"Loading new tool {tool}")
+                self._run_in_main_thread(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+            else:
+                self.logger.info("Tool change completed (unloaded)")
+                self._run_in_main_thread(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
         else:
-            gcmd.respond_info(f"Loading new tool {tool}")
+            self.logger.info(f"Loading new tool {tool}")
             self._park_to_toolhead(tool)
 
 def load_config(config):

@@ -77,47 +77,56 @@ class ValgAce:
         self._register_gcode_commands()
 
     def _init_logging(self, config):
-        """Инициализация системы логирования"""
-        disable_logging = config.getboolean('disable_logging', False)
-        if disable_logging:
-            self.logger = logging.getLogger('ace')
-            self.logger.addHandler(logging.NullHandler())
-            return
-            
-        log_dir = config.get('log_dir', '/var/log/ace')
-        log_level = config.get('log_level', 'INFO').upper()
-        max_log_size = config.getint('max_log_size', 10) * 1024 * 1024
-        log_backup_count = config.getint('log_backup_count', 3)
-        
-        try:
-            os.makedirs(log_dir, exist_ok=True)
-        except OSError as e:
-            print(f"Error creating log directory: {e}")
-            log_dir = '/tmp'
-
-        log_file = os.path.join(log_dir, 'ace.log')
-        
-        log_format = '%(asctime)s [%(levelname)s] %(message)s'
-        date_format = '%Y-%m-%d %H:%M:%S'
-        
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=max_log_size,
-            backupCount=log_backup_count
-        )
-        file_handler.setFormatter(logging.Formatter(log_format, date_format))
-        
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(logging.Formatter(log_format, date_format))
-        
-        logger = logging.getLogger()
-        logger.setLevel(getattr(logging, log_level, logging.INFO))
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
-        
-        self.logger = logging.getLogger('ace')
-        self.logger.info("ACE logging initialized")
-
+       """Инициализация системы логирования"""
+       disable_logging = config.getboolean('disable_logging', False)
+       if disable_logging:
+           self.logger = logging.getLogger('ace')
+           self.logger.addHandler(logging.NullHandler())
+           return
+           
+       log_dir = config.get('log_dir', '/var/log/ace')
+       log_level = config.get('log_level', 'INFO').upper()
+       max_log_size = config.getint('max_log_size', 10) * 1024 * 1024
+       log_backup_count = config.getint('log_backup_count', 3)
+       
+       try:
+           os.makedirs(log_dir, exist_ok=True)
+       except OSError as e:
+           print(f"Error creating log directory: {e}")
+           log_dir = '/tmp'
+    
+       log_file = os.path.join(log_dir, 'ace.log')
+       
+       log_format = '%(asctime)s [%(levelname)s] %(message)s'
+       date_format = '%Y-%m-%d %H:%M:%S'
+       
+       # Создаем логгер 'ace' и настраиваем его
+       self.logger = logging.getLogger('ace')
+       self.logger.setLevel(getattr(logging, log_level, logging.INFO))
+       
+       # Удаляем все существующие обработчики (на случай повторной инициализации)
+       for handler in self.logger.handlers[:]:
+           self.logger.removeHandler(handler)
+       
+       # Добавляем файловый обработчик
+       file_handler = logging.handlers.RotatingFileHandler(
+           log_file,
+           maxBytes=max_log_size,
+           backupCount=log_backup_count
+       )
+       file_handler.setFormatter(logging.Formatter(log_format, date_format))
+       self.logger.addHandler(file_handler)
+       
+       # Добавляем консольный обработчик
+       console_handler = logging.StreamHandler()
+       console_handler.setFormatter(logging.Formatter(log_format, date_format))
+       self.logger.addHandler(console_handler)
+       
+       # Отключаем распространение сообщений на корневой логгер
+       self.logger.propagate = False
+       
+       self.logger.info("ACE logging initialized")
+    
     def _find_ace_device(self) -> Optional[str]:
         """Поиск устройства ACE по VID/PID или описанию"""
         ACE_IDS = {
