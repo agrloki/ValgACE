@@ -427,9 +427,15 @@ class ValgAce:
     def _reset_connection(self):
         """Сброс соединения"""
         self._disconnect()
-        self.reactor.pause(self.reactor.monotonic() + 1.0)
+        self.reactor.pause(self.reactor.monotonic() + 2.0)  # Увеличенная задержка
+        if hasattr(self, '_serial'):
+            try:
+                self._serial.reset_input_buffer()  # Очистка буферов
+                self._serial.reset_output_buffer()
+            except:
+                pass
         self._connect()
-
+    
     def _disconnect(self):
         """Отключение от устройства"""
         if not self._connected:

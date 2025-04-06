@@ -121,7 +121,7 @@ class ValgAce:
     def _find_ace_device(self) -> Optional[str]:
         """Поиск устройства ACE по VID/PID или описанию"""
         ACE_IDS = {
-            'VID:PID': [(0x0483, 0x5740)],
+            'VID:PID': [(0x28e9, 0x018a)],
             'DESCRIPTION': ['ACE', 'BunnyAce', 'DuckAce']
         }
         
