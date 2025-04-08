@@ -226,13 +226,13 @@ class ValgAce:
         current_thread = threading.current_thread()
         if hasattr(self, '_writer_thread') and self._writer_thread != current_thread:
             try:
-                self._writer_thread.join(timeout=1)
+                self._writer_thread.join(timeout=0.5)
             except:
                 pass
         
         if hasattr(self, '_reader_thread') and self._reader_thread != current_thread:
             try:
-                self._reader_thread.join(timeout=1)
+                self._reader_thread.join(timeout=0.5)
             except:
                 pass
         
