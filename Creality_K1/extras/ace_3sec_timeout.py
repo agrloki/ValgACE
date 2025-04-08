@@ -1,7 +1,7 @@
-import time
 import serial
 import serial.tools.list_ports
 import threading
+import time
 import logging
 import json
 import struct
@@ -9,8 +9,6 @@ import queue
 import traceback
 from typing import Optional, Dict, Any, Callable
 from serial import SerialException
-
-#test ver
 
 class ValgAce:
     def __init__(self, config):
@@ -148,6 +146,7 @@ class ValgAce:
                     self._info['status'] = 'ready'
                     logging.info(f"Connected to ACE at {self.serial_name}")
                     
+                    # Запускаем потоки только если они еще не запущены
                     if not hasattr(self, '_writer_thread') or not self._writer_thread.is_alive():
                         self._writer_thread = threading.Thread(target=self._writer_loop)
                         self._writer_thread.daemon = True
@@ -161,6 +160,7 @@ class ValgAce:
                     if not hasattr(self, 'main_timer'):
                         self.main_timer = self.reactor.register_timer(self._main_eval, self.reactor.NOW)
                     
+                    # Запрос информации об устройстве
                     def info_callback(response):
                         res = response['result']
                         self.gcode.respond_info(f"Connected {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
@@ -170,7 +170,7 @@ class ValgAce:
                     
             except SerialException as e:
                 logging.warning(f"Connection attempt {attempt + 1} failed: {str(e)}")
-                self.reactor.pause(self.reactor.monotonic() + 1.0)
+                time.sleep(1)
         
         logging.error("Failed to connect to ACE device")
         return False
@@ -181,12 +181,16 @@ class ValgAce:
             return self._connect()
         
         try:
+            # Сохраняем ссылки на старые потоки
             old_writer = getattr(self, '_writer_thread', None)
             old_reader = getattr(self, '_reader_thread', None)
             
+            # Сбрасываем флаги перед новым подключением
             self._connected = False
             
+            # Пытаемся подключиться
             if self._connect():
+                # Аккуратно завершаем старые потоки
                 if old_writer and old_writer.is_alive() and old_writer != threading.current_thread():
                     try:
                         old_writer.join(timeout=0.5)
@@ -218,6 +222,7 @@ class ValgAce:
         except:
             pass
         
+        # Не пытаемся завершить потоки из самих потоков
         current_thread = threading.current_thread()
         if hasattr(self, '_writer_thread') and self._writer_thread != current_thread:
             try:
@@ -288,10 +293,10 @@ class ValgAce:
             try:
                 eventtime = self.reactor.monotonic()
                 next_eventtime = self._reader(eventtime)
-                self.reactor.pause(eventtime + max(0.01, next_eventtime - eventtime))
+                time.sleep(max(0, next_eventtime - self.reactor.monotonic()))
             except Exception as e:
                 logging.error(f"Reader loop error: {str(e)}")
-                self.reactor.pause(self.reactor.monotonic() + 1.0)
+                time.sleep(1)
 
     def _reader(self, eventtime):
         buffer = bytearray()
@@ -301,7 +306,7 @@ class ValgAce:
             except SerialException:
                 self.gcode.respond_info("Unable to communicate with the ACE PRO" + traceback.format_exc())
                 self.lock = False
-                return 0.5
+                return eventtime + 0.5
 
             if len(raw_bytes):
                 text_buffer = self.read_buffer + raw_bytes
@@ -317,16 +322,16 @@ class ValgAce:
         if self.lock and (self.reactor.monotonic() - self.send_time) > 2:
             self.lock = False
             self.gcode.respond_info(f"timeout {self.reactor.monotonic()}")
-            return 0.1
+            return eventtime + 0.1
 
         if len(buffer) < 7:
-            return 0.1
+            return eventtime + 0.1
 
         if buffer[0:2] != bytes([0xFF, 0xAA]):
             self.lock = False
             self.gcode.respond_info("Invalid data from ACE PRO (head bytes)")
             self.gcode.respond_info(str(buffer))
-            return 0.1
+            return eventtime + 0.1
 
         payload_len = struct.unpack('<H', buffer[2:4])[0]
         payload = buffer[4:4 + payload_len]
@@ -337,16 +342,17 @@ class ValgAce:
             self.lock = False
             self.gcode.respond_info(f"Invalid data from ACE PRO (len) {payload_len} {len(buffer)} {crc}")
             self.gcode.respond_info(str(buffer))
-            return 0.1
+            return eventtime + 0.1
 
         if crc_data != crc:
             self.lock = False
             self.gcode.respond_info('Invalid data from ACE PRO (CRC)')
-            return 0.1
+            return eventtime + 0.1
 
         try:
             response = json.loads(payload.decode('utf-8'))
 
+            # Обработка парковки филамента
             if self._park_in_progress and 'result' in response:
                 self._info = response['result']
                 if self._info['status'] == 'ready':
@@ -362,21 +368,22 @@ class ValgAce:
                     else:
                         self._complete_parking()
 
+            # Вызываем callback с ответом
             if 'id' in response and response['id'] in self._callback_map:
                 callback = self._callback_map.pop(response['id'])
                 try:
-                    callback(response)
+                    callback(response)  # Передаем только response
                 except Exception as e:
                     logging.error(f"Callback error: {str(e)}")
 
         except json.JSONDecodeError:
             self.gcode.respond_info("Invalid JSON from ACE PRO")
-            return 0.1
+            return eventtime + 0.1
         except Exception as e:
             self.gcode.respond_info(f"Error processing response: {str(e)}")
-            return 0.1
+            return eventtime + 0.1
 
-        return 0.1
+        return eventtime + 0.1
 
     def _complete_parking(self):
         """Завершение процесса парковки"""
@@ -417,6 +424,7 @@ class ValgAce:
                         if not self._send_request(request):
                             continue
                 
+                # Периодический запрос статуса
                 def status_callback(response):
                     if 'result' in response:
                         self._info = response['result']
@@ -426,8 +434,8 @@ class ValgAce:
                     "method": "get_status"
                 }, status_callback)
                 
-                pause_time = 0.25 if not self._park_in_progress else 0.68
-                self.reactor.pause(self.reactor.monotonic() + pause_time)
+                # Безопасная задержка
+                time.sleep(0.25 if not self._park_in_progress else 0.68)
 
             except SerialException:
                 logging.error("Serial write error")
@@ -435,7 +443,7 @@ class ValgAce:
                     self._reconnect()
             except Exception as e:
                 logging.error(f"Writer loop error: {str(e)}")
-                self.reactor.pause(self.reactor.monotonic() + 1.0)
+                time.sleep(1)
 
     def _main_eval(self, eventtime):
         """Обработка задач в основном потоке"""
@@ -491,10 +499,11 @@ class ValgAce:
         method = gcmd.get('METHOD')
         params = gcmd.get('PARAMS', '{}')
         
+        # Создаем event для ожидания ответа
         response_event = threading.Event()
         response_data = [None]
 
-        def callback(response):
+        def callback(response):  # Теперь принимает только response
             response_data[0] = response
             response_event.set()
 
@@ -534,6 +543,7 @@ class ValgAce:
                     output.append(f"Temperature: {result.get('temp', 'Unknown')}")
                     output.append(f"Fan Speed: {result.get('fan_speed', 'Unknown')}")
                     
+                    # Добавляем информацию о слотах
                     for slot in result.get('slots', []):
                         output.append(f"\nSlot {slot.get('index', '?')}:")
                         output.append(f"  Status: {slot.get('status', 'Unknown')}")
