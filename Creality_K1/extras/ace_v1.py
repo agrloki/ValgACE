@@ -507,7 +507,7 @@ class ValgAce:
             response = self.send_request(request, lambda x: None, timeout=3.0)
             gcmd.respond_info(json.dumps(response, indent=2))
         except Exception as e:
-            gcmd.respond_error(f"Error: {str(e)}")
+            gcmd.respond_raw(f"Error: {str(e)}")
 
     cmd_ACE_FILAMENT_INFO_help = 'ACE_FILAMENT_INFO INDEX='
     def cmd_ACE_FILAMENT_INFO(self, gcmd):
@@ -541,22 +541,22 @@ class ValgAce:
             }, lambda x: None, timeout=3.0)
             
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
             else:
                 gcmd.respond_info(f"Drying started at {temperature}°C for {duration} minutes")
         except Exception as e:
-            gcmd.respond_error(f"Error: {str(e)}")
+            gcmd.respond_raw(f"Error: {str(e)}")
 
     cmd_ACE_STOP_DRYING_help = "Stop filament drying"
     def cmd_ACE_STOP_DRYING(self, gcmd):
         try:
             response = self.send_request({"method": "drying_stop"}, lambda x: None, timeout=3.0)
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
             else:
                 gcmd.respond_info("Drying stopped")
         except Exception as e:
-            gcmd.respond_error(f"Error: {str(e)}")
+            gcmd.respond_raw(f"Error: {str(e)}")
 
     cmd_ACE_ENABLE_FEED_ASSIST_help = "Enable feed assist"
     def cmd_ACE_ENABLE_FEED_ASSIST(self, gcmd):
@@ -569,13 +569,13 @@ class ValgAce:
             }, lambda x: None, timeout=3.0)
             
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
             else:
                 self._feed_assist_index = index
                 gcmd.respond_info(f"Feed assist enabled for slot {index}")
                 self.dwell(0.3)
         except Exception as e:
-            gcmd.respond_error(f"Error: {str(e)}")
+            gcmd.respond_raw(f"Error: {str(e)}")
 
     cmd_ACE_DISABLE_FEED_ASSIST_help = "Disable feed assist"
     def cmd_ACE_DISABLE_FEED_ASSIST(self, gcmd):
@@ -588,13 +588,13 @@ class ValgAce:
             }, lambda x: None, timeout=3.0)
             
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
             else:
                 self._feed_assist_index = -1
                 gcmd.respond_info(f"Feed assist disabled for slot {index}")
                 self.dwell(0.3)
         except Exception as e:
-            gcmd.respond_error(f"Error: {str(e)}")
+            gcmd.respond_raw(f"Error: {str(e)}")
 
     def _park_to_toolhead(self, index: int):
         """Внутренний метод парковки филамента"""
@@ -618,7 +618,7 @@ class ValgAce:
     cmd_ACE_PARK_TO_TOOLHEAD_help = "Park filament to toolhead"
     def cmd_ACE_PARK_TO_TOOLHEAD(self, gcmd):
         if self._park_in_progress:
-            gcmd.respond_error("Already parking to toolhead")
+            gcmd.respond_raw("Already parking to toolhead")
             return
 
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
@@ -646,11 +646,11 @@ class ValgAce:
             }, lambda x: None, timeout=max(5.0, (length / speed) + 1.0))
             
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.rrespond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
             
             self.dwell((length / speed) + 0.1)
         except Exception as e:
-            gcmd.respond_error(f"Error: {str(e)}")
+            gcmd.respond_raw(f"Error: {str(e)}")
 
     cmd_ACE_RETRACT_help = "Retract filament"
     def cmd_ACE_RETRACT(self, gcmd):
@@ -669,11 +669,11 @@ class ValgAce:
             }, lambda x: None, timeout=max(5.0, (length / speed) + 1.0))
             
             if response.get('code', 0) != 0:
-                gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
             
             self.dwell((length / speed) + 0.1)
         except Exception as e:
-            gcmd.respond_error(f"Error: {str(e)}")
+            gcmd.respond_raw(f"Error: {str(e)}")
 
     cmd_ACE_CHANGE_TOOL_help = "Change tool"
     def cmd_ACE_CHANGE_TOOL(self, gcmd):
@@ -706,7 +706,7 @@ class ValgAce:
                 }, lambda x: None, timeout=5.0)
                 
                 if response.get('code', 0) != 0:
-                    gcmd.respond_error(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                    gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
                 
                 self.dwell((self.toolchange_retract_length / self.retract_speed) + 0.1)
 
@@ -722,7 +722,7 @@ class ValgAce:
             else:
                 self._park_to_toolhead(tool)
         except Exception as e:
-            gcmd.respond_error(f"Error: {str(e)}")
+            gcmd.respond_raw(f"Error: {str(e)}")
 
 def load_config(config):
     return ValgAce(config)
