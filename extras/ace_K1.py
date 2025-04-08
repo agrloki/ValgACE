@@ -10,6 +10,8 @@ import traceback
 from typing import Optional, Dict, Any, Callable
 from serial import SerialException
 
+#test ver
+
 class ValgAce:
     def __init__(self, config):
         self.printer = config.get_printer()
