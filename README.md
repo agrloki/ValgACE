@@ -2,6 +2,7 @@
 
 A Work-In-Progress driver for Anycubic Color Engine Pro for Klipper
 
+Обсуждение https://t.me/ERCFcrealityACEpro/21334
 
 Драйвер для Anycubic Color Engine Pro под Klipper, на данный момент статус в разработке.
 
