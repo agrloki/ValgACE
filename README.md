@@ -1,13 +1,31 @@
 # ValgACE
 
-A Work-In-Progress driver for Anycubic Color Engine Pro for Klipper
+A driver for Anycubic Color Engine Pro for Klipper
 
 Обсуждение https://t.me/ERCFcrealityACEpro/21334
 
-Драйвер для Anycubic Color Engine Pro под Klipper, на данный момент статус в разработке.
+Драйвер для Anycubic Color Engine Pro под Klipper, на данный момент статус тестирование.
 
 Based on https://github.com/utkabobr/DuckACE
 and https://github.com/BlackFrogKok/BunnyACE
+
+Основной функционал работает, на чистом клиппере работает стабильно, на кастомизированных версиях от производителей принтеров - как повезет.
+
+На данный момент подтверждена работа на принтерах  Creality К1.
+
+Драйвер обеспечивает основной функционал Anycubic Color Engine Pro без привязки к конкретной конструкции принтера, все процессы до и после смены филамента задаются 
+
+макросами в ace.cfg и в настройках слайсеров.
+
+## English
+
+The core functionality works, and it operates stably on a clean Klipper installation. On customized versions from printer manufacturers, the stability may vary.
+
+As of now, its operation has been confirmed on Creality K1 printers.
+
+The driver provides the main functionality of the Anycubic Color Engine Pro without being tied to a specific printer design; all processes before and after filament 
+
+changes are defined by macros in ace.cfg and slicer settings.
 
 ## Pinout
 
