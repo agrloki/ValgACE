@@ -39,10 +39,9 @@ changes are defined by macros in ace.cfg and slicer settings.
 Connect them to a regular USB, no dark magic is required.
 
 ## Установка
-## Инсталлятор не работает корректно. Работаю над исправлнием.
+
 - Клонируем репо: git clone https://github.com/agrloki/ValgACE.git
 - Заходим в каталог: cd ~/ValgACE
-- Выполняем: chmod +x ./install.sh
 - Запускаем установку: ./install.sh
 - В файл printer.cfg добавляем: [include ace.cfg]
 
@@ -50,15 +49,12 @@ Connect them to a regular USB, no dark magic is required.
 Поскольку драйвер в процессе отладки и возможно много изменений версий которые ставить совсем не надо:)
 
 ## Installation
-## The installer is not working properly. I'm working on fixing it.
+
 - Clone the repository:
     git clone https://github.com/agrloki/ValgACE.git
 
 - Navigate to the directory:
     cd ~/ValgACE
-
-- Make the script executable:
-    chmod +x ./install.sh
 
 - Run the installation:
     ./install.sh
