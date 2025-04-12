@@ -545,7 +545,7 @@ class ValgAce:
                             self._complete_parking()
                             return
                             
-                    self.dwell(0.7, on_main=True)
+                    self.dwell(0.7)
 
     def _complete_parking(self):
        """Завершение процесса парковки"""
@@ -933,55 +933,68 @@ class ValgAce:
 
     cmd_ACE_CHANGE_TOOL_help = "Change tool"
     def cmd_ACE_CHANGE_TOOL(self, gcmd):
-      """Обработчик команды ACE_CHANGE_TOOL"""
-      try:
-          tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
-          was = self.variables.get('ace_current_index', -1)
-          if was == tool:
-              gcmd.respond_info(f"Tool already set to {tool}")
-              return
-          if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
-              def run_gcode():
-                  self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
-              self._main_queue.put(run_gcode)
-              return
-          def pre_toolchange():
-              self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
-          self._main_queue.put(pre_toolchange)
-          self._park_is_toolchange = True
-          self._park_previous_tool = was
-          self.variables['ace_current_index'] = tool
-          def save_variable():
-              self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
-          self._main_queue.put(save_variable)
-          def callback(response):
-              if response.get('code', 0) != 0:
-                  gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
-          if was != -1:
-              self.send_request({
-                  "method": "unwind_filament",
-                  "params": {
-                      "index": was,
-                      "length": self.toolchange_retract_length,
-                      "speed": self.retract_speed
-                  }
-              }, callback)
-              self.dwell((self.toolchange_retract_length / self.retract_speed) + 0.1, on_main=True)
-              while self._info['status'] != 'ready':
-                  self.dwell(1.0, on_main=True)
-              self.dwell(0.25, on_main=True)
-              if tool != -1:
-                  self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-              else:
-                  def post_toolchange():
-                      self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                  self._main_queue.put(post_toolchange)
-          else:
-              self._park_to_toolhead(tool)
-      except Exception as e:
-          self.logger.error(f"Change tool error: {str(e)}", exc_info=True)
-          logging.error(f"Change tool error: {str(e)}", exc_info=True)
-          gcmd.respond_raw(f"Error: {str(e)}")
+       """Обработчик команды ACE_CHANGE_TOOL"""
+       try:
+           tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
+           was = self.variables.get('ace_current_index', -1)
+
+           if was == tool:
+               gcmd.respond_info(f"Tool already set to {tool}")
+               return
+
+           if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
+               def run_gcode():
+                   self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
+               self._main_queue.put(run_gcode)
+               return
+
+           def pre_toolchange():
+               self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
+           self._main_queue.put(pre_toolchange)
+
+           self._park_is_toolchange = True
+           self._park_previous_tool = was
+           self.variables['ace_current_index'] = tool
+
+           def save_variable():
+               self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
+           self._main_queue.put(save_variable)
+
+           def callback(response):
+               if response.get('code', 0) != 0:
+                   gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                   return
+
+           if was != -1:
+               self.send_request({
+                   "method": "unwind_filament",
+                   "params": {
+                       "index": was,
+                       "length": self.toolchange_retract_length,
+                       "speed": self.retract_speed
+                   }
+               }, callback)
+
+               # Ожидание завершения выгрузки
+               self.dwell((self.toolchange_retract_length / self.retract_speed) + 0.1, on_main=True)
+
+               while self._info['status'] != 'ready':
+                   self.logger.info("Waiting for device to become ready...")
+                   logging.info("Waiting for device to become ready...")
+                   self.dwell(1.0, on_main=True)
+
+               self.dwell(0.25, on_main=True)
+
+           if tool != -1:
+               self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+           else:
+               def post_toolchange():
+                   self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+               self._main_queue.put(post_toolchange)
+       except Exception as e:
+           self.logger.error(f"Change tool error: {str(e)}", exc_info=True)
+           logging.error(f"Change tool error: {str(e)}", exc_info=True)
+           gcmd.respond_raw(f"Error: {str(e)}")
         
 def load_config(config):
     return ValgAce(config)
