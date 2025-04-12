@@ -22,12 +22,7 @@ class ValgAce:
         if self._name.startswith('ace '):
             self._name = self._name[4:]
         self.variables = self.printer.lookup_object('save_variables').allVariables
-        
-        # Потокобезопасные структуры
-        self._serial_lock = threading.RLock()
-        self._data_lock = threading.RLock()
-        self._callback_lock = threading.RLock()
-        
+        self.lock = threading.Lock()  # Lock object
         self.read_buffer = bytearray()
         self.send_time = 0
         self._last_status_request = 0
@@ -54,7 +49,7 @@ class ValgAce:
         self.max_dryer_temperature = config.getint('max_dryer_temperature', 55)
         self.disable_assist_after_toolchange = config.getboolean('disable_assist_after_toolchange', True)
         
-        # Состояние устройства (защищено lock)
+        # Состояние устройства
         self._info = self._get_default_info()
         self._callback_map = {}
         self._request_id = 0
@@ -62,7 +57,7 @@ class ValgAce:
         self._connection_attempts = 0
         self._max_connection_attempts = 5
         
-        # Параметры работы (защищено lock)
+        # Параметры работы
         self._feed_assist_index = -1
         self._last_assist_count = 0
         self._assist_hit_count = 0
@@ -71,7 +66,7 @@ class ValgAce:
         self._park_previous_tool = -1
         self._park_index = -1
         
-        # Очереди (потокобезопасные по умолчанию)
+        # Очереди и потоки
         self._queue = queue.Queue(maxsize=self._max_queue_size)
         self._main_queue = queue.Queue()
         
@@ -121,7 +116,7 @@ class ValgAce:
         
         self.logger.propagate = False
         self.logger.info("ACE logging initialized")
-        logging.info("ACE internal logging engine initialized")
+        logging.info("ACE internal loggign engine initialized")
 
     def _find_ace_device(self) -> Optional[str]:
         """Поиск устройства ACE по VID/PID или описанию"""
@@ -191,87 +186,75 @@ class ValgAce:
             self.gcode.register_command(name, func, desc=desc)
 
     @contextmanager
-    def _serial_operation(self):
+    def _serial_lock(self):
         """Потокобезопасная блокировка для работы с портом"""
-        with self._serial_lock:
+        with self.lock:  # Использование lock как объекта Lock()
             try:
                 yield
             except Exception as e:
-                self.logger.error(f"Serial operation error: {str(e)}", exc_info=True)
-                logging.error(f"Serial operation error: {str(e)}", exc_info=True)
+                self.logger.error(f"Serial lock error: {str(e)}", exc_info=True)
+                logging.error(f"Serial lock error: {str(e)}", exc_info=True)
 
     def _connect(self) -> bool:
         """Попытка подключения к устройству"""
-        with self._serial_lock:
-            if self._connected:
-                return True
-            
-            for attempt in range(self._max_connection_attempts):
-                try:
-                    self._serial = serial.Serial(
-                        port=self.serial_name,
-                        baudrate=self.baud,
-                        timeout=self._read_timeout,
-                        write_timeout=self._write_timeout)
+        if self._connected:
+            return True
+        for attempt in range(self._max_connection_attempts):
+            try:
+                self._serial = serial.Serial(
+                    port=self.serial_name,
+                    baudrate=self.baud,
+                    timeout=self._read_timeout,
+                    write_timeout=self._write_timeout)
+                if self._serial.is_open:
+                    self._connected = True
+                    self._info['status'] = 'ready'
+                    self.logger.info(f"Connected to ACE at {self.serial_name}")
+                    logging.info(f"Connected to ACE at {self.serial_name}")
                     
-                    if self._serial.is_open:
-                        with self._data_lock:
-                            self._connected = True
-                            self._info['status'] = 'ready'
+                    if not hasattr(self, '_writer_thread') or not self._writer_thread.is_alive():
+                        self._writer_thread = threading.Thread(target=self._writer_loop)
+                        self._writer_thread.daemon = True
+                        self._writer_thread.start()
                         
-                        self.logger.info(f"Connected to ACE at {self.serial_name}")
-                        logging.info(f"Connected to ACE at {self.serial_name}")
+                    if not hasattr(self, '_reader_thread') or not self._reader_thread.is_alive():
+                        self._reader_thread = threading.Thread(target=self._reader_loop)
+                        self._reader_thread.daemon = True
+                        self._reader_thread.start()
                         
-                        # Запуск потоков только если они не работают
-                        if not hasattr(self, '_writer_thread') or not self._writer_thread.is_alive():
-                            self._writer_thread = threading.Thread(
-                                target=self._writer_loop,
-                                name="ACE_Writer")
-                            self._writer_thread.daemon = True
-                            self._writer_thread.start()
-                            
-                        if not hasattr(self, '_reader_thread') or not self._reader_thread.is_alive():
-                            self._reader_thread = threading.Thread(
-                                target=self._reader_loop,
-                                name="ACE_Reader")
-                            self._reader_thread.daemon = True
-                            self._reader_thread.start()
-                            
-                        if not hasattr(self, 'main_timer'):
-                            self.main_timer = self.reactor.register_timer(
-                                self._main_eval, self.reactor.NOW)
-                            
-                        def info_callback(response):
-                            res = response['result']
-                            self.logger.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-                            logging.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-                            self.gcode.respond_info(f"Connected {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-                            
-                        self.send_request({"method": "get_info"}, info_callback)
-                        return True
-                except SerialException as e:
-                    self.logger.warning(f"Connection attempt {attempt + 1} failed: {str(e)}")
-                    logging.warning(f"Connection attempt {attempt + 1} failed: {str(e)}")
-                    time.sleep(1)
-            
-            self.logger.error("Failed to connect to ACE device")
-            logging.error("Failed to connect to ACE device")
-            return False
+                    if not hasattr(self, 'main_timer'):
+                        self.main_timer = self.reactor.register_timer(self._main_eval, self.reactor.NOW)
+                        
+                    def info_callback(response):
+                        res = response['result']
+                        self.logger.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
+                        logging.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
+                        self.gcode.respond_info(f"Connected {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
+                        
+                    self.send_request({"method": "get_info"}, info_callback)
+                    return True
+            except SerialException as e:
+                self.logger.warning(f"Connection attempt {attempt + 1} failed: {str(e)}")
+                logging.warning(f"Connection attempt {attempt + 1} failed: {str(e)}")
+                time.sleep(1)
+        self.logger.error("Failed to connect to ACE device")
+        logging.error("Failed to connect to ACE device")
+        return False
 
     def _writer_loop(self):
         """Цикл записи с использованием time.sleep для фонового потока"""
-        while self._get_connected_state():
+        while getattr(self, '_connected', False):
             try:
                 now = time.time()
-                if now - self._get_last_status_request() > 1.0:
+                if now - self._last_status_request > 1.0:
                     self._request_status()
-                    self._set_last_status_request(now)
+                    self._last_status_request = now
                     
                 if not self._queue.empty():
                     task = self._queue.get_nowait()
                     if task:
                         request, callback = task
-                        self._add_callback(request['id'], callback)
+                        self._callback_map[request['id']] = callback
                         
                         if not self._send_request(request):
                             self.logger.warning("Failed to send request, requeuing...")
@@ -284,7 +267,7 @@ class ValgAce:
             except SerialException:
                 self.logger.error("Serial write error")
                 logging.error("Serial write error")
-                if self._get_connected_state():
+                if self._connected:
                     self._reconnect()
             except Exception as e:
                 self.logger.error(f"Writer loop error: {str(e)}")
@@ -296,7 +279,7 @@ class ValgAce:
         incomplete_message_count = 0
         max_incomplete_messages_before_reset = 10
         
-        while self._get_connected_state():
+        while getattr(self, '_connected', False):
             try:
                 bytes_to_read = self._serial.in_waiting or 16
                 raw_bytes = self._serial.read(bytes_to_read)
@@ -304,17 +287,15 @@ class ValgAce:
                     time.sleep(0.01)
                     continue
                     
-                with self._serial_lock:
-                    self.read_buffer.extend(raw_bytes)
+                self.read_buffer.extend(raw_bytes)
                 
                 while True:
-                    with self._serial_lock:
-                        end_idx = self.read_buffer.find(b'\xfe')
-                        if end_idx == -1:
-                            break
-                            
-                        msg = self.read_buffer[:end_idx+1]
-                        self.read_buffer = self.read_buffer[end_idx+1:]
+                    end_idx = self.read_buffer.find(b'\xfe')
+                    if end_idx == -1:
+                        break
+                        
+                    msg = self.read_buffer[:end_idx+1]
+                    self.read_buffer = self.read_buffer[end_idx+1:]
                     
                     if len(msg) < 7 or msg[0:2] != bytes([0xFF, 0xAA]):
                         self.logger.debug(f"Invalid message header: {msg}")
@@ -351,15 +332,13 @@ class ValgAce:
 
     def _reconnect(self) -> bool:
         """Безопасное переподключение"""
-        if not self._get_connected_state():
+        if not self._connected:
             return self._connect()
-        
         try:
             old_writer = getattr(self, '_writer_thread', None)
             old_reader = getattr(self, '_reader_thread', None)
             
-            with self._data_lock:
-                self._connected = False
+            self._connected = False
             
             if self._connect():
                 if old_writer and old_writer.is_alive() and old_writer != threading.current_thread():
@@ -389,16 +368,12 @@ class ValgAce:
 
     def _disconnect(self):
         """Безопасное отключение"""
-        if not self._get_connected_state():
+        if not self._connected:
             return
-            
-        with self._data_lock:
-            self._connected = False
-            
+        self._connected = False
         try:
-            with self._serial_lock:
-                if hasattr(self, '_serial'):
-                    self._serial.close()
+            if hasattr(self, '_serial'):
+                self._serial.close()
         except Exception as e:
             self.logger.error(f"Disconnect error: {str(e)}")
             logging.error(f"Disconnect error: {str(e)}")
@@ -444,9 +419,9 @@ class ValgAce:
     def _send_request(self, request: Dict[str, Any]) -> bool:
         """Отправка запроса с оптимизациями"""
         start_time = time.time()
-        with self._serial_operation():
+        with self._serial_lock():
             try:
-                if not self._get_connected_state() and not self._reconnect():
+                if not self._connected and not self._reconnect():
                     raise SerialException("Device not connected")
                     
                 if 'id' not in request:
@@ -473,8 +448,7 @@ class ValgAce:
                         
                 try:
                     self._serial.write(packet)
-                    with self._data_lock:
-                        self.send_time = time.time()
+                    self.send_time = time.time()
                     self.logger.debug(f"Request {request['id']} sent in {(time.time()-start_time)*1000:.1f}ms")
                     logging.debug(f"Request {request['id']} sent in {(time.time()-start_time)*1000:.1f}ms")
                     return True
@@ -496,11 +470,10 @@ class ValgAce:
 
     def _get_next_request_id(self) -> int:
         """Генерация ID запроса с защитой от переполнения"""
-        with self._data_lock:
-            self._request_id += 1
-            if self._request_id >= 300000:
-                self._request_id = 0
-            return self._request_id
+        self._request_id += 1
+        if self._request_id >= 300000:
+            self._request_id = 0
+        return self._request_id
 
     def _process_message(self, msg: bytes):
         """Оптимизированная обработка сообщений"""
@@ -546,7 +519,7 @@ class ValgAce:
     def _handle_response(self, response: dict):
         """Централизованная обработка ответов"""
         if 'id' in response:
-            callback = self._get_callback(response['id'])
+            callback = self._callback_map.pop(response['id'], None)
             if callback:
                 try:
                     callback(response)
@@ -556,44 +529,42 @@ class ValgAce:
                     
         if 'result' in response and isinstance(response['result'], dict):
             result = response['result']
-            with self._data_lock:
-                self._info.update(result)
+            self._info.update(result)
             
-            if self._get_park_in_progress():
+            if self._park_in_progress:
                 current_status = result.get('status', 'unknown')
                 current_assist_count = result.get('feed_assist_count', 0)
                 
                 if current_status == 'ready':
-                    if current_assist_count != self._get_last_assist_count():
-                        self._set_last_assist_count(current_assist_count)
-                        self._set_assist_hit_count(0)
+                    if current_assist_count != self._last_assist_count:
+                        self._last_assist_count = current_assist_count
+                        self._assist_hit_count = 0
                     else:
-                        self._inc_assist_hit_count()
-                        if self._get_assist_hit_count() >= self.park_hit_count:
+                        self._assist_hit_count += 1
+                        if self._assist_hit_count >= self.park_hit_count:
                             self._complete_parking()
                             return
                             
-                    self.dwell(0.7, True)
+                    self.dwell(0.7,True)
 
     def _complete_parking(self):
        """Завершение процесса парковки"""
-       if not self._get_park_in_progress():
+       if not self._park_in_progress:
            return
-           
-       self.logger.info(f"Parking completed for slot {self._get_park_index()}")
-       logging.info(f"Parking completed for slot {self._get_park_index()}")
+       self.logger.info(f"Parking completed for slot {self._park_index}")
+       logging.info(f"Parking completed for slot {self._park_index}")
        try:
            # Остановка feed assist
            self.send_request({
                "method": "stop_feed_assist",
-               "params": {"index": self._get_park_index()}
+               "params": {"index": self._park_index}
            }, lambda r: None)
 
            # Выполнение G-code команды в основном потоке
-           if self._get_park_is_toolchange():
+           if self._park_is_toolchange:
                def run_gcode():
                    self.gcode.run_script_from_command(
-                       f'_ACE_POST_TOOLCHANGE FROM={self._get_park_previous_tool()} TO={self._get_park_index()}'
+                       f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}'
                    )
                self._main_queue.put(run_gcode)
        except Exception as e:
@@ -601,30 +572,26 @@ class ValgAce:
            logging.error(f"Parking completion error: {str(e)}", exc_info=True)
        finally:
            # Сброс состояния парковки
-           with self._data_lock:
-               self._park_in_progress = False
-               self._park_is_toolchange = False
-               self._park_previous_tool = -1
-               self._park_index = -1
-               
+           self._park_in_progress = False
+           self._park_is_toolchange = False
+           self._park_previous_tool = -1
+           self._park_index = -1
            if self.disable_assist_after_toolchange:
-               with self._data_lock:
-                   self._feed_assist_index = -1
+               self._feed_assist_index = -1
 
     def _request_status(self):
         """Запрос статуса устройства"""
         def status_callback(response):
             if 'result' in response:
-                with self._data_lock:
-                    self._info.update(response['result'])
+                self._info.update(response['result'])
                 
-        if time.time() - self._get_last_status_request() > (0.2 if self._get_park_in_progress() else 1.0):
+        if time.time() - self._last_status_request > (0.2 if self._park_in_progress else 1.0):
             try:
                 self.send_request({
                     "id": self._get_next_request_id(),
                     "method": "get_status"
                 }, status_callback)
-                self._set_last_status_request(time.time())
+                self._last_status_request = time.time()
             except Exception as e:
                 self.logger.error(f"Status request error: {str(e)}", exc_info=True)
                 logging.error(f"Status request error: {str(e)}", exc_info=True)
@@ -691,71 +658,13 @@ class ValgAce:
            if not self.reactor.is_main_thread():
                raise RuntimeError("Dwell must be called in the main thread or with on_main=True")
            main_callback()
-
-    # ==================== Thread-safe getters/setters ====================
-    def _get_connected_state(self) -> bool:
-        with self._data_lock:
-            return self._connected
-
-    def _get_last_status_request(self) -> float:
-        with self._data_lock:
-            return self._last_status_request
-
-    def _set_last_status_request(self, value: float):
-        with self._data_lock:
-            self._last_status_request = value
-
-    def _get_park_in_progress(self) -> bool:
-        with self._data_lock:
-            return self._park_in_progress
-
-    def _get_park_is_toolchange(self) -> bool:
-        with self._data_lock:
-            return self._park_is_toolchange
-
-    def _get_park_previous_tool(self) -> int:
-        with self._data_lock:
-            return self._park_previous_tool
-
-    def _get_park_index(self) -> int:
-        with self._data_lock:
-            return self._park_index
-
-    def _get_last_assist_count(self) -> int:
-        with self._data_lock:
-            return self._last_assist_count
-
-    def _set_last_assist_count(self, value: int):
-        with self._data_lock:
-            self._last_assist_count = value
-
-    def _get_assist_hit_count(self) -> int:
-        with self._data_lock:
-            return self._assist_hit_count
-
-    def _set_assist_hit_count(self, value: int):
-        with self._data_lock:
-            self._assist_hit_count = value
-
-    def _inc_assist_hit_count(self):
-        with self._data_lock:
-            self._assist_hit_count += 1
-
-    def _add_callback(self, request_id: int, callback: Callable):
-        with self._callback_lock:
-            self._callback_map[request_id] = callback
-
-    def _get_callback(self, request_id: int) -> Optional[Callable]:
-        with self._callback_lock:
-            return self._callback_map.pop(request_id, None)
-
+        
     # ==================== G-CODE COMMANDS ====================
     cmd_ACE_STATUS_help = "Get current device status"
     def cmd_ACE_STATUS(self, gcmd):
         """Обработчик команды ACE_STATUS"""
         try:
-            with self._data_lock:
-                status = json.dumps(self._info, indent=2)
+            status = json.dumps(self._info, indent=2)
             gcmd.respond_info(f"ACE Status:\n{status}")
         except Exception as e:
             self.logger.error(f"Status command error: {str(e)}", exc_info=True)
@@ -893,8 +802,7 @@ class ValgAce:
                 if response.get('code', 0) != 0:
                     gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
                 else:
-                    with self._data_lock:
-                        self._feed_assist_index = index
+                    self._feed_assist_index = index
                     gcmd.respond_info(f"Feed assist enabled for slot {index}")
                     self.dwell(0.3, on_main=True)
                     
@@ -911,14 +819,13 @@ class ValgAce:
     def cmd_ACE_DISABLE_FEED_ASSIST(self, gcmd):
         """Обработчик команды ACE_DISABLE_FEED_ASSIST"""
         try:
-            index = gcmd.get_int('INDEX', self._get_feed_assist_index(), minval=0, maxval=3)
+            index = gcmd.get_int('INDEX', self._feed_assist_index, minval=0, maxval=3)
             
             def callback(response):
                 if response.get('code', 0) != 0:
                     gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
                 else:
-                    with self._data_lock:
-                        self._feed_assist_index = -1
+                    self._feed_assist_index = -1
                     gcmd.respond_info(f"Feed assist disabled for slot {index}")
                     self.dwell(0.3, on_main=True)
                     
@@ -931,10 +838,6 @@ class ValgAce:
             logging.error(f"Disable feed assist error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
 
-    def _get_feed_assist_index(self) -> int:
-        with self._data_lock:
-            return self._feed_assist_index
-
     def _park_to_toolhead(self, index: int):
         """Внутренний метод парковки филамента"""
         try:
@@ -942,11 +845,10 @@ class ValgAce:
                 if response.get('code', 0) != 0:
                     raise ValueError(f"ACE Error: {response.get('msg', 'Unknown error')}")
                     
-                with self._data_lock:
-                    self._assist_hit_count = 0
-                    self._last_assist_count = response.get('result', {}).get('feed_assist_count', 0)
-                    self._park_in_progress = True
-                    self._park_index = index
+                self._assist_hit_count = 0
+                self._last_assist_count = response.get('result', {}).get('feed_assist_count', 0)
+                self._park_in_progress = True
+                self._park_index = index
                 self.dwell(0.3, on_main=True)
                 
             self.send_request({
@@ -961,7 +863,7 @@ class ValgAce:
     def cmd_ACE_PARK_TO_TOOLHEAD(self, gcmd):
        """Обработчик команды ACE_PARK_TO_TOOLHEAD"""
        try:
-           if self._get_park_in_progress():
+           if self._park_in_progress:
                gcmd.respond_raw("Already parking to toolhead")
                return
            index = gcmd.get_int('INDEX', minval=0, maxval=3)
@@ -1030,124 +932,69 @@ class ValgAce:
 
     cmd_ACE_CHANGE_TOOL_help = "Change tool"
     def cmd_ACE_CHANGE_TOOL(self, gcmd):
-        """Обработчик команды ACE_CHANGE_TOOL"""
-        try:
-            tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
-            was = self.variables.get('ace_current_index', -1)
-    
-            if was == tool:
-                gcmd.respond_info(f"Tool already set to {tool}")
-                return
-    
-            if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
-                self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
-                return
-    
-            # Выполняем pre-toolchange
-            self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
-    
-            # Сохраняем состояние для callback'ов
-            self._tc_data = {
-                'was': was,
-                'tool': tool,
-                'gcmd': gcmd,
-                'retract_start': time.time(),
-                'status_checks': 0
-            }
-    
-            if was != -1:
-                # Начинаем выгрузку
-                self._start_retract()
-            else:
-                # Если не было предыдущего инструмента, сразу начинаем загрузку
-                self._start_parking()
-    
-        except Exception as e:
-            self.logger.error(f"Change tool error: {str(e)}", exc_info=True)
-            gcmd.respond_raw(f"Error: {str(e)}")
-            self._cleanup_tc_data()
-    
-    def _start_retract(self):
-        """Начинает процесс выгрузки филамента"""
-        def retract_callback(response):
-            if response.get('code', 0) != 0:
-                self._tc_data['gcmd'].respond_raw(f"Retract error: {response.get('msg', 'Unknown error')}")
-                self._cleanup_tc_data()
-                return
-            
-            # После успешной выгрузки начинаем проверять статус
-            self.reactor.register_callback(self._check_status_after_retract)
-    
-        self.send_request({
-            "method": "unwind_filament",
-            "params": {
-                "index": self._tc_data['was'],
-                "length": self.toolchange_retract_length,
-                "speed": self.retract_speed
-            }
-        }, retract_callback)
-    
-    def _check_status_after_retract(self, eventtime):
-        """Проверяет статус после выгрузки"""
-        if not hasattr(self, '_tc_data'):
-            return self.reactor.NEVER
-    
-        # Проверяем таймаут (30 секунд максимум)
-        if time.time() - self._tc_data['retract_start'] > 30.0:
-            self._tc_data['gcmd'].respond_raw("Timeout waiting for retract completion")
-            self._cleanup_tc_data()
-            return self.reactor.NEVER
-    
-        def status_callback(response):
-            if not hasattr(self, '_tc_data'):
-                return
-    
-            self._tc_data['status_checks'] += 1
-            
-            if 'result' in response and response['result'].get('status') == 'ready':
-                # Устройство готово, начинаем загрузку
-                self._start_parking()
-            else:
-                # Продолжаем проверять каждые 0.5 секунды
-                if self._tc_data['status_checks'] < 60:  # Максимум 60 проверок
-                    self.reactor.register_callback(self._check_status_after_retract, eventtime + 0.5)
-                else:
-                    self._tc_data['gcmd'].respond_raw("Device not ready after retract")
-                    self._cleanup_tc_data()
-    
-        self.send_request({"method": "get_status"}, status_callback)
-        return self.reactor.NEVER
-    
-    def _start_parking(self):
-        """Начинает процесс загрузки нового филамента"""
-        if not hasattr(self, '_tc_data'):
-            return
-    
-        try:
-            # Сохраняем текущий инструмент
-            self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={self._tc_data["tool"]}')
-            
-            # Обновляем состояние
-            with self._data_lock:
-                self.variables['ace_current_index'] = self._tc_data['tool']
-                if self._tc_data['was'] != -1:
-                    self._park_is_toolchange = True
-                    self._park_previous_tool = self._tc_data['was']
-    
-            if self._tc_data['tool'] != -1:
-                # Запускаем парковку нового филамента
-                self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={self._tc_data["tool"]}')
-                self._tc_data['gcmd'].respond_info(f'Tool changed to {self._tc_data["tool"]}')
-            else:
-                # Если tool=-1 (нет инструмента)
-                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={self._tc_data["was"]} TO=-1')
-        finally:
-            self._cleanup_tc_data()
-    
-    def _cleanup_tc_data(self):
-        """Очищает данные о смене инструмента"""
-        if hasattr(self, '_tc_data'):
-            del self._tc_data
+       """Обработчик команды ACE_CHANGE_TOOL"""
+       try:
+           tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
+           was = self.variables.get('ace_current_index', -1)
+
+           if was == tool:
+               gcmd.respond_info(f"Tool already set to {tool}")
+               return
+
+           if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
+               def run_gcode():
+                   self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
+               self._main_queue.put(run_gcode)
+               return
+
+           def pre_toolchange():
+               self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
+           self._main_queue.put(pre_toolchange)
+
+           self._park_is_toolchange = True
+           self._park_previous_tool = was
+           self.variables['ace_current_index'] = tool
+
+           def save_variable():
+               self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
+           self._main_queue.put(save_variable)
+
+           def callback(response):
+               if response.get('code', 0) != 0:
+                   gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                   return
+
+           if was != -1:
+               self.send_request({
+                   "method": "unwind_filament",
+                   "params": {
+                       "index": was,
+                       "length": self.toolchange_retract_length,
+                       "speed": self.retract_speed
+                   }
+               }, callback)
+
+               # Ожидание завершения выгрузки
+               self.dwell((self.toolchange_retract_length / self.retract_speed) + 0.1, on_main=True)
+
+               while self._info['status'] != 'ready':
+                   self.logger.info("Waiting for device to become ready...")
+                   logging.info("Waiting for device to become ready...")
+                   self.dwell(1.0, on_main=True)
+
+               self.dwell(0.25, on_main=True)
+
+           if tool != -1:
+               self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+               gcmd.respond_info(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+           else:
+               def post_toolchange():
+                   self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+               self._main_queue.put(post_toolchange)
+       except Exception as e:
+           self.logger.error(f"Change tool error: {str(e)}", exc_info=True)
+           logging.error(f"Change tool error: {str(e)}", exc_info=True)
+           gcmd.respond_raw(f"Error: {str(e)}")
         
 def load_config(config):
     return ValgAce(config)
