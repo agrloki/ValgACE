@@ -1043,119 +1043,66 @@ class ValgAce:
                 self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
                 return
     
-            # Выполняем pre-toolchange
+            # Выполняем pre-toolchange в основном потоке
             self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
     
-            # Сохраняем состояние для callback'ов
-            self._tc_data = {
-                'was': was,
-                'tool': tool,
-                'gcmd': gcmd,
-                'retract_start': time.time(),
-                'status_checks': 0
-            }
+            # Сохраняем состояние
+            self.variables['ace_current_index'] = tool
+            self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
     
             if was != -1:
-                if tool == -1:
-                    gcmd.respond_info("Unloading filament from tool T%d" % was)
-                # Начинаем выгрузку
-                self._start_retract()
-            else:
-                # Если не было предыдущего инструмента, сразу начинаем загрузку
-                if tool != -1:
-                    self._start_parking()
+                # Выгружаем предыдущий филамент
+                gcmd.respond_info(f"Unloading filament from T{was}...")
+                self._execute_retract(was, gcmd)
+                
+                # Ожидаем завершения выгрузки
+                start_time = time.time()
+                while time.time() - start_time < 30.0:  # Таймаут 30 секунд
+                    with self._data_lock:
+                        if self._info['status'] == 'ready':
+                            break
+                    time.sleep(0.5)
                 else:
-                    gcmd.respond_info("No tool to unload or load")
-                    self._cleanup_tc_data()
-                    
+                    gcmd.respond_raw("Timeout waiting for unload completion")
+                    return
+    
+            if tool != -1:
+                # Загружаем новый филамент
+                gcmd.respond_info(f"Loading filament to T{tool}...")
+                self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+            else:
+                gcmd.respond_info(f"Tool T{was} unloaded, no tool selected")
+    
+            # Выполняем post-toolchange в основном потоке
+            self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
     
         except Exception as e:
             self.logger.error(f"Change tool error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
-            self._cleanup_tc_data()
     
-    def _start_retract(self):
-        """Начинает процесс выгрузки филамента"""
+    def _execute_retract(self, tool_index, gcmd):
+        """Выполняет выгрузку филамента синхронно"""
+        retract_done = False
+        
         def retract_callback(response):
+            nonlocal retract_done
             if response.get('code', 0) != 0:
-                self._tc_data['gcmd'].respond_raw(f"Retract error: {response.get('msg', 'Unknown error')}")
-                self._cleanup_tc_data()
-                return
-            
-            # После успешной выгрузки начинаем проверять статус
-            self.reactor.register_callback(self._check_status_after_retract)
+                gcmd.respond_raw(f"Retract error: {response.get('msg', 'Unknown error')}")
+            retract_done = True
     
         self.send_request({
             "method": "unwind_filament",
             "params": {
-                "index": self._tc_data['was'],
+                "index": tool_index,
                 "length": self.toolchange_retract_length,
                 "speed": self.retract_speed
             }
         }, retract_callback)
     
-    def _check_status_after_retract(self, eventtime):
-        """Проверяет статус после выгрузки"""
-        if not hasattr(self, '_tc_data'):
-            return self.reactor.NEVER
-    
-        # Проверяем таймаут (30 секунд максимум)
-        if time.time() - self._tc_data['retract_start'] > 30.0:
-            self._tc_data['gcmd'].respond_raw("Timeout waiting for retract completion")
-            self._cleanup_tc_data()
-            return self.reactor.NEVER
-    
-        def status_callback(response):
-            if not hasattr(self, '_tc_data'):
-                return
-    
-            self._tc_data['status_checks'] += 1
-            
-            if 'result' in response and response['result'].get('status') == 'ready':
-                # Устройство готово, начинаем загрузку
-                self._start_parking()
-            else:
-                # Продолжаем проверять каждые 0.5 секунды
-                if self._tc_data['status_checks'] < 60:  # Максимум 60 проверок
-                    self.reactor.register_callback(self._check_status_after_retract, eventtime + 0.5)
-                else:
-                    self._tc_data['gcmd'].respond_raw("Device not ready after retract")
-                    self._cleanup_tc_data()
-    
-        self.send_request({"method": "get_status"}, status_callback)
-        return self.reactor.NEVER
-    
-    def _start_parking(self):
-        """Начинает процесс загрузки нового филамента"""
-        if not hasattr(self, '_tc_data'):
-            return
-    
-        try:
-            # Сохраняем текущий инструмент
-            self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={self._tc_data["tool"]}')
-            
-            # Обновляем состояние
-            with self._data_lock:
-                self.variables['ace_current_index'] = self._tc_data['tool']
-                if self._tc_data['was'] != -1:
-                    self._park_is_toolchange = True
-                    self._park_previous_tool = self._tc_data['was']
-    
-            if self._tc_data['tool'] != -1:
-                # Запускаем парковку нового филамента
-                self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={self._tc_data["tool"]}')
-                self._tc_data['gcmd'].respond_info(f'Tool changed to {self._tc_data["tool"]}')
-            else:
-                # Если tool=-1 (нет инструмента)
-                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={self._tc_data["was"]} TO=-1')
-                self._tc_data['gcmd'].respond_info(f'Filament unloaded from T{self._tc_data["was"]}, no tool selected')
-        finally:
-            self._cleanup_tc_data()
-    
-    def _cleanup_tc_data(self):
-        """Очищает данные о смене инструмента"""
-        if hasattr(self, '_tc_data'):
-            del self._tc_data
+        # Ожидаем подтверждения начала выгрузки
+        start_time = time.time()
+        while not retract_done and time.time() - start_time < 5.0:
+            time.sleep(0.1)
         
 def load_config(config):
     return ValgAce(config)
