@@ -545,7 +545,7 @@ class ValgAce:
                             self._complete_parking()
                             return
                             
-                    self.dwell(0.7)
+                    self.dwell(0.7,True)
 
     def _complete_parking(self):
        """Завершение процесса парковки"""
