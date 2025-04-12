@@ -1,0 +1,10 @@
+{
+    "name": "Fluidd ACE Plugin",
+    "id": "fluidd-ace-plugin",
+    "version": "1.0.0",
+    "author": "Your Name",
+    "description": "A Fluidd plugin to display ACE device status and filament RFID data.",
+    "dependencies": [],
+    "styles": ["styles.css"],
+    "scripts": ["index.js"]
+  }
