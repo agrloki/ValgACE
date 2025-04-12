@@ -1056,11 +1056,18 @@ class ValgAce:
             }
     
             if was != -1:
+                if tool == -1:
+                    gcmd.respond_info("Unloading filament from tool T%d" % was)
                 # Начинаем выгрузку
                 self._start_retract()
             else:
                 # Если не было предыдущего инструмента, сразу начинаем загрузку
-                self._start_parking()
+                if tool != -1:
+                    self._start_parking()
+                else:
+                    gcmd.respond_info("No tool to unload or load")
+                    self._cleanup_tc_data()
+                    
     
         except Exception as e:
             self.logger.error(f"Change tool error: {str(e)}", exc_info=True)
@@ -1141,6 +1148,7 @@ class ValgAce:
             else:
                 # Если tool=-1 (нет инструмента)
                 self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={self._tc_data["was"]} TO=-1')
+                self._tc_data['gcmd'].respond_info(f'Filament unloaded from T{self._tc_data["was"]}, no tool selected')
         finally:
             self._cleanup_tc_data()
     
