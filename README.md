@@ -1,13 +1,31 @@
 # ValgACE
 
-A Work-In-Progress driver for Anycubic Color Engine Pro for Klipper
+## A driver for Anycubic Color Engine Pro for Klipper
 
 Обсуждение https://t.me/ERCFcrealityACEpro/21334
 
-Драйвер для Anycubic Color Engine Pro под Klipper, на данный момент статус в разработке.
+## Драйвер для Anycubic Color Engine Pro под Klipper, на данный момент статус тестирование.
 
 Based on https://github.com/utkabobr/DuckACE
 and https://github.com/BlackFrogKok/BunnyACE
+
+Основной функционал работает, на чистом клиппере работает стабильно, на кастомизированных версиях от производителей принтеров - как повезет.
+
+На данный момент подтверждена работа на принтерах  Creality К1.
+
+Драйвер обеспечивает основной функционал Anycubic Color Engine Pro без привязки к конкретной конструкции принтера, все процессы до и после смены филамента задаются 
+
+макросами в ace.cfg и в настройках слайсеров.
+
+## English
+
+The core functionality works, and it operates stably on a clean Klipper installation. On customized versions from printer manufacturers, the stability may vary.
+
+As of now, its operation has been confirmed on Creality K1 printers.
+
+The driver provides the main functionality of the Anycubic Color Engine Pro without being tied to a specific printer design; all processes before and after filament 
+
+changes are defined by macros in ace.cfg and slicer settings.
 
 ## Pinout
 
@@ -21,26 +39,21 @@ and https://github.com/BlackFrogKok/BunnyACE
 Connect them to a regular USB, no dark magic is required.
 
 ## Установка
-## Инсталлятор не работает корректно. Работаю над исправлнием.
+
 - Клонируем репо: git clone https://github.com/agrloki/ValgACE.git
 - Заходим в каталог: cd ~/ValgACE
-- Выполняем: chmod +x ./install.sh
 - Запускаем установку: ./install.sh
 - В файл printer.cfg добавляем: [include ace.cfg]
 
-Скрипт выполнит все необходимые действия. На данный момент прописывание в апдейт менеджер moonraker отключено. 
-Поскольку драйвер в процессе отладки и возможно много изменений версий которые ставить совсем не надо:)
+Скрипт выполнит все необходимые действия. 
 
 ## Installation
-## The installer is not working properly. I'm working on fixing it.
+
 - Clone the repository:
     git clone https://github.com/agrloki/ValgACE.git
 
 - Navigate to the directory:
     cd ~/ValgACE
-
-- Make the script executable:
-    chmod +x ./install.sh
 
 - Run the installation:
     ./install.sh
@@ -48,7 +61,7 @@ Connect them to a regular USB, no dark magic is required.
 - Add this include statement to printer.cfg:
      [include ace.cfg]
 
-The script will perform all necessary actions. Currently, automatic registration with Moonraker's update manager is disabled since the driver is under active development and may undergo frequent version changes that shouldn't necessarily be installed automatically :)
+The script will perform all necessary actions. 
 
 ## Доступные команды:
 - ACE_STATUS                               Получить статус
