@@ -153,11 +153,12 @@ class ValgAce:
 
     @contextmanager
     def _safe_serial_operation(self, operation):
+        """Потокобезопасная блокировка для работы с портом"""
         try:
             with self._serial_lock:
-                return operation()
+                yield operation()
         except SerialException as e:
-            logging.error(f"Serial error: {e}")
+            logging.error(f"Serial operation error: {str(e)}", exc_info=True)
             self._handle_serial_error(e)
         except Exception as e:
             logging.exception("Unexpected serial error")
@@ -333,11 +334,12 @@ class ValgAce:
     def _send_request(self, request: Dict[str, Any], callback: Callable = None) -> bool:
         """Отправка запроса с контролем очереди и использованием реактора"""
         start_time = self.reactor.monotonic()
-        with self._safe_serial_operation(lambda: None):
+        with self._safe_serial_operation(lambda: None):  # Используем безопасную операцию
             try:
                 # Проверка подключения
                 if not self._get_connected_state() and not self._reconnect():
                     raise SerialException("Device not connected")
+                
                 # Проверка переполнения очереди
                 if self._queue.qsize() >= self._max_queue_size:
                     logging.warning("Request queue overflow, clearing...")
@@ -358,17 +360,21 @@ class ValgAce:
                     # Регистрация таймера для очистки очереди
                     self.reactor.register_timer(clear_queue, self.reactor.NOW)
                     return False
+                
                 # Генерация ID запроса
                 if 'id' not in request:
                     request['id'] = self._get_next_request_id()
+                
                 # Кодирование данных в JSON
                 try:
                     payload = json.dumps(request).encode('utf-8')
                 except Exception as e:
                     logging.error(f"JSON encoding error: {str(e)}")
                     return False
+                
                 # Расчет CRC
                 crc = self._calc_crc(payload)
+                
                 # Формирование пакета
                 packet = (
                     bytes([0xFF, 0xAA]) +
@@ -377,16 +383,19 @@ class ValgAce:
                     struct.pack('<H', crc) +
                     bytes([0xFE])
                 )
+                
                 # Проверка состояния порта перед записью
                 if not hasattr(self, '_serial') or not self._serial.is_open:
                     if not self._reconnect():
                         return False
+                
                 # Отправка данных
                 try:
                     self._serial.write(packet)
                     with self._data_lock:
                         self.send_time = self.reactor.monotonic()
                     logging.debug(f"Request {request['id']} sent in {(self.reactor.monotonic()-start_time)*1000:.1f}ms")
+                    
                     # Добавление callback в карту обратных вызовов
                     if callback:
                         self._add_callback(request['id'], callback)
