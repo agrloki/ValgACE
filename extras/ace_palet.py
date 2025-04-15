@@ -559,7 +559,7 @@ class ValgAce:
                     toolhead.wait_moves()
             except Exception as e:
                 logging.error(f"Dwell error: {str(e)}", exc_info=True)
-        if on_main:
+        if on_main or not self.reactor.is_main_thread():
             # Перенос выполнения в основной поток через _main_queue
             self._main_queue.put(main_callback)
         else:
