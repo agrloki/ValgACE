@@ -951,49 +951,29 @@ class ValgAce:
         try:
             tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
             was = self.variables.get('ace_current_index', -1)
-    
+
             if was == tool:
                 gcmd.respond_info(f"Tool already set to {tool}")
                 return
-    
+
             if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
                 self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
                 return
-    
-            # Создаем цепочку выполнения через таймер реактора
+
+            # Выполняем pre-toolchange в основном потоке
+            self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
+            # Сохраняем состояние
+            self.variables['ace_current_index'] = tool
+            self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
+
+            # Запускаем цепочку выполнения через реактор
             def execute_toolchange_steps(step=0):
                 if step == 0:
-                    # Шаг 1: Выполняем pre-toolchange
-                    def run_pre_toolchange():
-                        try:
-                            self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
-                            # Сохраняем состояние
-                            self.variables['ace_current_index'] = tool
-                            self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
-                            # Переходим к следующему шагу
-                            self.reactor.register_timer(lambda e: execute_toolchange_steps(1), self.reactor.NOW)
-                        except Exception as e:
-                            logging.error(f"Pre-toolchange error: {str(e)}")
-                            gcmd.respond_raw(f"Error during pre-toolchange: {str(e)}")
-    
-                    # Помещаем выполнение в основной поток
-                    self._main_queue.put(run_pre_toolchange)
-    
-                elif step == 1:
                     if was != -1:
-                        # Шаг 2: Выгружаем предыдущий филамент
+                        # Шаг 1: Выгружаем предыдущий филамент
                         gcmd.respond_info(f"Unloading filament from T{was}...")
-                        
-                        # Отправляем запрос на выгрузку
-                        self.send_request({
-                            "method": "unwind_filament",
-                            "params": {
-                                "index": was,
-                                "length": self.toolchange_retract_length,
-                                "speed": self.retract_speed
-                            }
-                        }, lambda response: None)
-    
+                        self._execute_retract(was, gcmd)
+
                         # Настраиваем проверку завершения выгрузки
                         def check_unload_complete(eventtime=None):
                             with self._data_lock:
@@ -1009,18 +989,18 @@ class ValgAce:
                                     return self.reactor.NEVER  # Прекращаем таймер
                             # Если выгрузка еще не завершена, проверяем снова через 0.5 секунды
                             return eventtime + 0.5
-    
+
                         # Регистрируем таймер проверки завершения
                         self.reactor.register_timer(check_unload_complete, self.reactor.NOW)
                         return self.reactor.NEVER
-    
+
                     elif tool != -1:
                         # Если просто загрузка нового инструмента
                         gcmd.respond_info(f"Loading filament to T{tool}...")
                         self._park_to_toolhead(tool)
                         # Переходим к post-toolchange
                         self.reactor.register_timer(lambda e: execute_toolchange_steps(2), self.reactor.NOW)
-    
+
                 elif step == 2:
                     # Шаг 3: Выполняем post-toolchange
                     def run_post_toolchange():
@@ -1030,15 +1010,15 @@ class ValgAce:
                         except Exception as e:
                             logging.error(f"Post-toolchange error: {str(e)}")
                             gcmd.respond_raw(f"Error during post-toolchange: {str(e)}")
-    
+
                     # Помещаем выполнение в основной поток
                     self._main_queue.put(run_post_toolchange)
-    
+
                 return self.reactor.NEVER
-    
+
             # Запускаем цепочку выполнения
             self.reactor.register_timer(lambda e: execute_toolchange_steps(0), self.reactor.NOW)
-    
+
         except Exception as e:
             logging.error(f"Tool change error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
@@ -1071,7 +1051,6 @@ class ValgAce:
         # Регистрация таймера для проверки статуса
         self.retract_timer = self.reactor.register_timer(
             self._check_retract_status, self.reactor.NOW)
-
         gcmd.respond_info(f"Started filament retract from T{tool_index}")
 
     def _check_retract_status(self, eventtime):
@@ -1081,12 +1060,16 @@ class ValgAce:
                 # Выгрузка завершена успешно
                 logging.info("Filament retract completed successfully")
                 return self.reactor.NEVER  # Прекращаем таймер
-
+    
+            if self._info['status'] == 'busy':
+                # Устройство все еще занято, продолжаем проверку
+                return eventtime + 0.1
+    
+        # Таймаут при ожидании выгрузки
         if time.time() - self._retract_start_time >= 5.0:
-            # Таймаут при ожидании выгрузки
             logging.error("Timeout waiting for filament retract completion")
             return self.reactor.NEVER  # Прекращаем таймер
-
+    
         # Повторить проверку через 0.1 секунды
         return eventtime + 0.1
         
