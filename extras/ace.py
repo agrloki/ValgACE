@@ -1055,7 +1055,6 @@ class ValgAce:
         try:
             tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
             was = self.variables.get('ace_current_index', -1)
-
             if was == tool:
                 gcmd.respond_info(f"Tool already set to {tool}")
                 return
@@ -1076,41 +1075,40 @@ class ValgAce:
                 gcmd.respond_info(f"Unloading filament from T{was}...")
                 self._execute_retract(was, gcmd)
 
-                # Ожидаем завершения выгрузки
-                start_time = time.time()
-                while time.time() - start_time < 30.0:  # Таймаут 30 секунд
+                # Добавляем задержку для ожидания завершения через таймер
+                def check_unload_complete():
                     with self._data_lock:
                         if self._info['status'] == 'ready':
-                            break
-                    time.sleep(0.5)
-                else:
-                    gcmd.respond_raw("Timeout waiting for unload completion")
-                    return
+                            # Если выгрузка завершена, продолжаем
+                            if tool != -1:
+                                gcmd.respond_info(f"Loading filament to T{tool}...")
+                                self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+                            else:
+                                gcmd.respond_info(f"Tool T{was} unloaded, no tool selected")
 
-            if tool != -1:
-                # Загружаем новый филамент
+                            # Выполняем post-toolchange в основном потоке
+                            self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                            return
+
+                        # Если выгрузка еще не завершена, проверяем снова через 0.5 секунды
+                        self.reactor.register_timer(check_unload_complete, self.reactor.monotonic() + 0.5)
+
+                # Начинаем проверку завершения выгрузки
+                self.reactor.register_timer(check_unload_complete, self.reactor.NOW)
+
+            elif tool != -1:
+                # Если просто загрузка нового инструмента
                 gcmd.respond_info(f"Loading filament to T{tool}...")
                 self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-            else:
-                gcmd.respond_info(f"Tool T{was} unloaded, no tool selected")
-
-            # Выполняем post-toolchange в основном потоке
-            self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
 
         except Exception as e:
             self.logger.error(f"Change tool error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
-
+            
     def _execute_retract(self, tool_index, gcmd):
-        """Выполняет выгрузку филамента синхронно"""
-        retract_done = False
-
-        def retract_callback(response):
-            nonlocal retract_done
-            if response.get('code', 0) != 0:
-                gcmd.respond_raw(f"Retract error: {response.get('msg', 'Unknown error')}")
-            retract_done = True
-
+        """Выполняет выгрузку филамента через механизм таймеров реактора"""
+        # Отправляем запрос на выгрузку филамента
         self.send_request({
             "method": "unwind_filament",
             "params": {
@@ -1118,12 +1116,35 @@ class ValgAce:
                 "length": self.toolchange_retract_length,
                 "speed": self.retract_speed
             }
-        }, retract_callback)
+        }, lambda response: None)  # Callback можно оставить пустым или обработать ошибки
 
-        # Ожидаем подтверждения начала выгрузки
-        start_time = time.time()
-        while not retract_done and time.time() - start_time < 5.0:
-            time.sleep(0.1)
+        # Инициализация состояния для ожидания
+        self._retract_done = False
+        self._retract_start_time = time.time()
+
+        # Регистрация таймера для проверки статуса
+        self.retract_timer = self.reactor.register_timer(
+            self._check_retract_status, self.reactor.NOW)
+
+        gcmd.respond_info(f"Started filament retract from T{tool_index}")
+
+    def _check_retract_status(self, eventtime):
+        """Проверка статуса выгрузки филамента через реактор"""
+        with self._data_lock:
+            if self._info['status'] == 'ready':
+                # Выгрузка завершена успешно
+                self.logger.info("Filament retract completed successfully")
+                logging.info("Filament retract completed successfully")
+                return self.reactor.NEVER  # Прекращаем таймер
+
+        if time.time() - self._retract_start_time >= 5.0:
+            # Таймаут при ожидании выгрузки
+            self.logger.error("Timeout waiting for filament retract completion")
+            logging.error("Timeout waiting for filament retract completion")
+            return self.reactor.NEVER  # Прекращаем таймер
+
+        # Повторить проверку через 0.1 секунды
+        return eventtime + 0.1
         
 def load_config(config):
     return ValgAce(config)
