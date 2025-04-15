@@ -205,21 +205,21 @@ class ValgAce:
         with self._serial_lock:
             if self._connected:
                 return True
-    
+
             # Регистрируем таймер для попыток подключения
             self._connection_attempts = 0
             self.connection_timer = self.reactor.register_timer(self._attempt_connection, self.reactor.NOW)
             self.logger.info("Connection attempts initiated via reactor timer")
             logging.info("Connection attempts initiated via reactor timer")
             return False  # Возвращаем False, так как подключение асинхронное
-    
+
     def _attempt_connection(self, eventtime):
         """Попытка подключения через реактор"""
         max_attempts = self._max_connection_attempts
         with self._serial_lock:
             if self._connected:
                 return self.reactor.NEVER  # Прекращаем попытки, если уже подключены
-    
+
             try:
                 self._connection_attempts += 1
                 self._serial = serial.Serial(
@@ -234,7 +234,7 @@ class ValgAce:
                         self._info['status'] = 'ready'
                     self.logger.info(f"Connected to ACE at {self.serial_name}")
                     logging.info(f"Connected to ACE at {self.serial_name}")
-    
+
                     # Запуск потоков только если они не работают
                     if not hasattr(self, '_writer_thread') or not self._writer_thread.is_alive():
                         self._writer_thread = threading.Thread(
@@ -243,7 +243,7 @@ class ValgAce:
                         )
                         self._writer_thread.daemon = True
                         self._writer_thread.start()
-    
+
                     if not hasattr(self, '_reader_thread') or not self._reader_thread.is_alive():
                         self._reader_thread = threading.Thread(
                             target=self._reader_loop,
@@ -251,22 +251,22 @@ class ValgAce:
                         )
                         self._reader_thread.daemon = True
                         self._reader_thread.start()
-    
+
                     if not hasattr(self, 'main_timer'):
                         self.main_timer = self.reactor.register_timer(
                             self._main_eval, self.reactor.NOW
                         )
-    
+
                     # Запрос информации о устройстве
                     def info_callback(response):
                         res = response['result']
                         self.logger.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
                         logging.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
                         self.gcode.respond_info(f"Connected {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-    
+
                     self.send_request({"method": "get_info"}, info_callback)
                     return self.reactor.NEVER  # Прекращаем таймер после успешного подключения
-    
+
             except SerialException as e:
                 self.logger.warning(f"Connection attempt {self._connection_attempts} failed: {str(e)}")
                 logging.warning(f"Connection attempt {self._connection_attempts} failed: {str(e)}")
@@ -274,7 +274,7 @@ class ValgAce:
                     self.logger.error("Max connection attempts reached")
                     logging.error("Max connection attempts reached")
                     return self.reactor.NEVER  # Прекращаем попытки после достижения лимита
-    
+
             # Повторить попытку через 1 секунду
             return eventtime + 1.0
 
@@ -659,7 +659,8 @@ class ValgAce:
            except Exception as e:
                self.logger.error(f"Main eval error: {str(e)}", exc_info=True)
                logging.error(f"Main eval error: {str(e)}", exc_info=True)
-       return eventtime + 0.1
+       next_event_time = eventtime + (0.05 if self._main_queue.qsize() > 0 else 0.1)
+       return next_event_time
 
     def _handle_ready(self):
         """Обработчик готовности Klipper"""
