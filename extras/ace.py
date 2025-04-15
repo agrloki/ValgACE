@@ -949,7 +949,33 @@ class ValgAce:
         except Exception as e:
             logging.error(f"Feed command error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
-
+            
+    cmd_ACE_RETRACT_help = "Retract filament"
+    def cmd_ACE_RETRACT(self, gcmd):
+        """Обработчик команды ACE_RETRACT"""
+        try:
+            index = gcmd.get_int('INDEX', minval=0, maxval=3)
+            length = gcmd.get_int('LENGTH', minval=1)
+            speed = gcmd.get_int('SPEED', self.retract_speed, minval=1)
+            
+            def callback(response):
+                if response.get('code', 0) != 0:
+                    gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
+                    
+            self.send_request({
+                "method": "unwind_filament",
+                "params": {
+                    "index": index,
+                    "length": length,
+                    "speed": speed
+                }
+            }, callback)
+            self.dwell((length / speed) + 0.1)
+        except Exception as e:
+            self.logger.error(f"Retract command error: {str(e)}", exc_info=True)
+            logging.error(f"Retract command error: {str(e)}", exc_info=True)
+            gcmd.respond_raw(f"Error: {str(e)}")
+            
     cmd_ACE_CHANGE_TOOL_help = "Change tool"
     def cmd_ACE_CHANGE_TOOL(self, gcmd):
         """Обработчик команды ACE_CHANGE_TOOL"""
