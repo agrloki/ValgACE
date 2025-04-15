@@ -602,24 +602,24 @@ class ValgAce:
         self._queue.put((request, callback))
 
     def dwell(self, delay: float = 1.0, on_main: bool = False):
-       """Пауза с возможностью выполнения в основном потоке"""
-       toolhead = self.printer.lookup_object('toolhead')
+        """Пауза с возможностью выполнения в основном потоке"""
+        toolhead = self.printer.lookup_object('toolhead')
 
-       def main_callback():
-           try:
-               toolhead.dwell(delay)
-           except Exception as e:
-               logging.error(f"Dwell error: {str(e)}", exc_info=True)
+        def main_callback():
+            try:
+                toolhead.dwell(delay)
+            except Exception as e:
+                logging.error(f"Dwell error: {str(e)}", exc_info=True)
 
-       if on_main:
-           # Перенос выполнения в основной поток через _main_queue
-           self._main_queue.put(main_callback)
-       else:
-           # Выполнение напрямую (только если мы уверены, что это основной поток)
-           if not self.reactor.is_main_thread():
-               raise RuntimeError("Dwell must be called in the main thread or with on_main=True")
-           main_callback()
-
+        if on_main:
+            # Перенос выполнения в основной поток через _main_queue
+            self._main_queue.put(main_callback)
+        else:
+            # Выполнение напрямую (только если мы уверены, что это основной поток)
+            if not self.reactor.is_main_thread():
+                raise RuntimeError("Dwell must be called in the main thread or with on_main=True")
+            main_callback()
+            
     # ==================== Thread-safe getters/setters ====================
     def _get_connected_state(self) -> bool:
         with self._data_lock:
