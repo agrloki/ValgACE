@@ -1058,25 +1058,25 @@ class ValgAce:
             if was == tool:
                 gcmd.respond_info(f"Tool already set to {tool}")
                 return
-
+            
             if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
                 self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
                 return
-
+            
             # Выполняем pre-toolchange в основном потоке
             self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
-
+            
             # Сохраняем состояние
             self.variables['ace_current_index'] = tool
             self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
-
+            
             if was != -1:
                 # Выгружаем предыдущий филамент
                 gcmd.respond_info(f"Unloading filament from T{was}...")
                 self._execute_retract(was, gcmd)
-
+                
                 # Добавляем задержку для ожидания завершения через таймер
-                def check_unload_complete():
+                def check_unload_complete(eventtime=None):
                     with self._data_lock:
                         if self._info['status'] == 'ready':
                             # Если выгрузка завершена, продолжаем
@@ -1085,23 +1085,23 @@ class ValgAce:
                                 self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
                             else:
                                 gcmd.respond_info(f"Tool T{was} unloaded, no tool selected")
-
+                            
                             # Выполняем post-toolchange в основном потоке
                             self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                            return
-
+                            return self.reactor.NEVER  # Прекращаем таймер
+                        
                         # Если выгрузка еще не завершена, проверяем снова через 0.5 секунды
-                        self.reactor.register_timer(check_unload_complete, self.reactor.monotonic() + 0.5)
-
+                        return self.reactor.monotonic() + 0.5
+                
                 # Начинаем проверку завершения выгрузки
                 self.reactor.register_timer(check_unload_complete, self.reactor.NOW)
-
+            
             elif tool != -1:
                 # Если просто загрузка нового инструмента
                 gcmd.respond_info(f"Loading filament to T{tool}...")
                 self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
                 self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-
+        
         except Exception as e:
             self.logger.error(f"Change tool error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
