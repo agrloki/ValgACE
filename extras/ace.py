@@ -857,25 +857,55 @@ class ValgAce:
             return self._feed_assist_index
 
     def _park_to_toolhead(self, index: int):
-        """Внутренний метод парковки филамента"""
+        """Внутренний метод парковки филамента с ожиданием завершения"""
         try:
             def callback(response):
                 if response.get('code', 0) != 0:
                     raise ValueError(f"ACE Error: {response.get('msg', 'Unknown error')}")
-                    
                 with self._data_lock:
                     self._assist_hit_count = 0
                     self._last_assist_count = response.get('result', {}).get('feed_assist_count', 0)
                     self._park_in_progress = True
                     self._park_index = index
                 self.dwell(0.3, on_main=True)
-                
+
+            # Отправляем запрос на начало подачи филамента
             self.send_request({
                 "method": "start_feed_assist",
                 "params": {"index": index}
             }, callback)
+
+            # Регистрация таймера для проверки завершения парковки
+            self.reactor.register_timer(
+                lambda eventtime: self._check_park_status(eventtime, index),
+                self.reactor.NOW
+            )
         except Exception as e:
             logging.error(f"Park to toolhead error: {str(e)}", exc_info=True)
+            
+    def _check_park_status(self, eventtime, index: int):
+        """Проверка статуса парковки филамента через реактор"""
+        with self._data_lock:
+            if not self._park_in_progress:
+                return self.reactor.NEVER  # Прекращаем таймер, если парковка завершена
+    
+            current_status = self._info.get('status', 'unknown')
+            current_assist_count = self._info.get('feed_assist_count', 0)
+    
+            if current_status == 'ready':
+                if current_assist_count != self._last_assist_count:
+                    self._last_assist_count = current_assist_count
+                    self._assist_hit_count = 0
+                else:
+                    self._assist_hit_count += 1
+                    if self._assist_hit_count >= self.park_hit_count:
+                        # Парковка завершена успешно
+                        logging.info(f"Parking completed for slot {index}")
+                        self._complete_parking()
+                        return self.reactor.NEVER  # Прекращаем таймер
+    
+        # Если парковка еще не завершена, проверяем снова через 0.1 секунды
+        return eventtime + 0.1
 
     cmd_ACE_PARK_TO_TOOLHEAD_help = "Park filament to toolhead"
     def cmd_ACE_PARK_TO_TOOLHEAD(self, gcmd):
@@ -920,31 +950,6 @@ class ValgAce:
             logging.error(f"Feed command error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
 
-    cmd_ACE_RETRACT_help = "Retract filament"
-    def cmd_ACE_RETRACT(self, gcmd):
-        """Обработчик команды ACE_RETRACT"""
-        try:
-            index = gcmd.get_int('INDEX', minval=0, maxval=3)
-            length = gcmd.get_int('LENGTH', minval=1)
-            speed = gcmd.get_int('SPEED', self.retract_speed, minval=1)
-            
-            def callback(response):
-                if response.get('code', 0) != 0:
-                    gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
-                    
-            self.send_request({
-                "method": "unwind_filament",
-                "params": {
-                    "index": index,
-                    "length": length,
-                    "speed": speed
-                }
-            }, callback)
-            self.dwell((length / speed) + 0.1, on_main=True)
-        except Exception as e:
-            logging.error(f"Retract command error: {str(e)}", exc_info=True)
-            gcmd.respond_raw(f"Error: {str(e)}")
-
     cmd_ACE_CHANGE_TOOL_help = "Change tool"
     def cmd_ACE_CHANGE_TOOL(self, gcmd):
         """Обработчик команды ACE_CHANGE_TOOL"""
@@ -984,7 +989,7 @@ class ValgAce:
                                         self._park_to_toolhead(tool)
                                     else:
                                         gcmd.respond_info(f"Tool T{was} unloaded, no tool selected")
-                                    # Переходим к post-toolchange
+                                    # Переходим к следующему шагу
                                     self.reactor.register_timer(lambda e: execute_toolchange_steps(2), self.reactor.NOW)
                                     return self.reactor.NEVER  # Прекращаем таймер
                             # Если выгрузка еще не завершена, проверяем снова через 0.5 секунды
@@ -998,7 +1003,7 @@ class ValgAce:
                         # Если просто загрузка нового инструмента
                         gcmd.respond_info(f"Loading filament to T{tool}...")
                         self._park_to_toolhead(tool)
-                        # Переходим к post-toolchange
+                        # Переходим к следующему шагу
                         self.reactor.register_timer(lambda e: execute_toolchange_steps(2), self.reactor.NOW)
 
                 elif step == 2:
@@ -1049,7 +1054,7 @@ class ValgAce:
         self._retract_start_time = time.time()
 
         # Регистрация таймера для проверки статуса
-        self.retract_timer = self.reactor.register_timer(
+        self.reactor.register_timer(
             self._check_retract_status, self.reactor.NOW)
         gcmd.respond_info(f"Started filament retract from T{tool_index}")
 
@@ -1060,16 +1065,13 @@ class ValgAce:
                 # Выгрузка завершена успешно
                 logging.info("Filament retract completed successfully")
                 return self.reactor.NEVER  # Прекращаем таймер
-    
-            if self._info['status'] == 'busy':
-                # Устройство все еще занято, продолжаем проверку
-                return eventtime + 0.1
-    
-        # Таймаут при ожидании выгрузки
+
+        # Если статус busy, проверяем снова через 0.1 секунды
         if time.time() - self._retract_start_time >= 5.0:
+            # Таймаут при ожидании выгрузки
             logging.error("Timeout waiting for filament retract completion")
             return self.reactor.NEVER  # Прекращаем таймер
-    
+
         # Повторить проверку через 0.1 секунды
         return eventtime + 0.1
         
