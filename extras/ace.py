@@ -205,58 +205,78 @@ class ValgAce:
         with self._serial_lock:
             if self._connected:
                 return True
-            
-            for attempt in range(self._max_connection_attempts):
-                try:
-                    self._serial = serial.Serial(
-                        port=self.serial_name,
-                        baudrate=self.baud,
-                        timeout=self._read_timeout,
-                        write_timeout=self._write_timeout)
-                    
-                    if self._serial.is_open:
-                        with self._data_lock:
-                            self._connected = True
-                            self._info['status'] = 'ready'
-                        
-                        self.logger.info(f"Connected to ACE at {self.serial_name}")
-                        logging.info(f"Connected to ACE at {self.serial_name}")
-                        
-                        # Запуск потоков только если они не работают
-                        if not hasattr(self, '_writer_thread') or not self._writer_thread.is_alive():
-                            self._writer_thread = threading.Thread(
-                                target=self._writer_loop,
-                                name="ACE_Writer")
-                            self._writer_thread.daemon = True
-                            self._writer_thread.start()
-                            
-                        if not hasattr(self, '_reader_thread') or not self._reader_thread.is_alive():
-                            self._reader_thread = threading.Thread(
-                                target=self._reader_loop,
-                                name="ACE_Reader")
-                            self._reader_thread.daemon = True
-                            self._reader_thread.start()
-                            
-                        if not hasattr(self, 'main_timer'):
-                            self.main_timer = self.reactor.register_timer(
-                                self._main_eval, self.reactor.NOW)
-                            
-                        def info_callback(response):
-                            res = response['result']
-                            self.logger.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-                            logging.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-                            self.gcode.respond_info(f"Connected {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-                            
-                        self.send_request({"method": "get_info"}, info_callback)
-                        return True
-                except SerialException as e:
-                    self.logger.warning(f"Connection attempt {attempt + 1} failed: {str(e)}")
-                    logging.warning(f"Connection attempt {attempt + 1} failed: {str(e)}")
-                    time.sleep(1)
-            
-            self.logger.error("Failed to connect to ACE device")
-            logging.error("Failed to connect to ACE device")
-            return False
+    
+            # Регистрируем таймер для попыток подключения
+            self._connection_attempts = 0
+            self.connection_timer = self.reactor.register_timer(self._attempt_connection, self.reactor.NOW)
+            self.logger.info("Connection attempts initiated via reactor timer")
+            logging.info("Connection attempts initiated via reactor timer")
+            return False  # Возвращаем False, так как подключение асинхронное
+    
+    def _attempt_connection(self, eventtime):
+        """Попытка подключения через реактор"""
+        max_attempts = self._max_connection_attempts
+        with self._serial_lock:
+            if self._connected:
+                return self.reactor.NEVER  # Прекращаем попытки, если уже подключены
+    
+            try:
+                self._connection_attempts += 1
+                self._serial = serial.Serial(
+                    port=self.serial_name,
+                    baudrate=self.baud,
+                    timeout=self._read_timeout,
+                    write_timeout=self._write_timeout
+                )
+                if self._serial.is_open:
+                    with self._data_lock:
+                        self._connected = True
+                        self._info['status'] = 'ready'
+                    self.logger.info(f"Connected to ACE at {self.serial_name}")
+                    logging.info(f"Connected to ACE at {self.serial_name}")
+    
+                    # Запуск потоков только если они не работают
+                    if not hasattr(self, '_writer_thread') or not self._writer_thread.is_alive():
+                        self._writer_thread = threading.Thread(
+                            target=self._writer_loop,
+                            name="ACE_Writer"
+                        )
+                        self._writer_thread.daemon = True
+                        self._writer_thread.start()
+    
+                    if not hasattr(self, '_reader_thread') or not self._reader_thread.is_alive():
+                        self._reader_thread = threading.Thread(
+                            target=self._reader_loop,
+                            name="ACE_Reader"
+                        )
+                        self._reader_thread.daemon = True
+                        self._reader_thread.start()
+    
+                    if not hasattr(self, 'main_timer'):
+                        self.main_timer = self.reactor.register_timer(
+                            self._main_eval, self.reactor.NOW
+                        )
+    
+                    # Запрос информации о устройстве
+                    def info_callback(response):
+                        res = response['result']
+                        self.logger.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
+                        logging.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
+                        self.gcode.respond_info(f"Connected {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
+    
+                    self.send_request({"method": "get_info"}, info_callback)
+                    return self.reactor.NEVER  # Прекращаем таймер после успешного подключения
+    
+            except SerialException as e:
+                self.logger.warning(f"Connection attempt {self._connection_attempts} failed: {str(e)}")
+                logging.warning(f"Connection attempt {self._connection_attempts} failed: {str(e)}")
+                if self._connection_attempts >= max_attempts:
+                    self.logger.error("Max connection attempts reached")
+                    logging.error("Max connection attempts reached")
+                    return self.reactor.NEVER  # Прекращаем попытки после достижения лимита
+    
+            # Повторить попытку через 1 секунду
+            return eventtime + 1.0
 
     def _writer_loop(self):
         """Цикл записи с использованием time.sleep для фонового потока"""
@@ -1034,27 +1054,27 @@ class ValgAce:
         try:
             tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
             was = self.variables.get('ace_current_index', -1)
-    
+
             if was == tool:
                 gcmd.respond_info(f"Tool already set to {tool}")
                 return
-    
+
             if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
                 self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
                 return
-    
+
             # Выполняем pre-toolchange в основном потоке
             self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
-    
+
             # Сохраняем состояние
             self.variables['ace_current_index'] = tool
             self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
-    
+
             if was != -1:
                 # Выгружаем предыдущий филамент
                 gcmd.respond_info(f"Unloading filament from T{was}...")
                 self._execute_retract(was, gcmd)
-                
+
                 # Ожидаем завершения выгрузки
                 start_time = time.time()
                 while time.time() - start_time < 30.0:  # Таймаут 30 секунд
@@ -1065,31 +1085,31 @@ class ValgAce:
                 else:
                     gcmd.respond_raw("Timeout waiting for unload completion")
                     return
-    
+
             if tool != -1:
                 # Загружаем новый филамент
                 gcmd.respond_info(f"Loading filament to T{tool}...")
                 self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
             else:
                 gcmd.respond_info(f"Tool T{was} unloaded, no tool selected")
-    
+
             # Выполняем post-toolchange в основном потоке
             self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-    
+
         except Exception as e:
             self.logger.error(f"Change tool error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
-    
+
     def _execute_retract(self, tool_index, gcmd):
         """Выполняет выгрузку филамента синхронно"""
         retract_done = False
-        
+
         def retract_callback(response):
             nonlocal retract_done
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"Retract error: {response.get('msg', 'Unknown error')}")
             retract_done = True
-    
+
         self.send_request({
             "method": "unwind_filament",
             "params": {
@@ -1098,7 +1118,7 @@ class ValgAce:
                 "speed": self.retract_speed
             }
         }, retract_callback)
-    
+
         # Ожидаем подтверждения начала выгрузки
         start_time = time.time()
         while not retract_done and time.time() - start_time < 5.0:
