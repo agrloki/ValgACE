@@ -829,337 +829,154 @@ class ValgAce:
         except Exception as e:
             logging.error(f"Park to toolhead error: {str(e)}", exc_info=True)
 
-# ==================== G-CODE COMMANDS ====================
-cmd_ACE_STATUS_help = "Get current device status"
-def cmd_ACE_STATUS(self, gcmd):
-    """Обработчик команды ACE_STATUS"""
-    try:
-        with self._data_lock:
-            status = json.dumps(self._info, indent=2)
-        gcmd.respond_info(f"ACE Status:\n{status}")
-    except Exception as e:
-        logging.error(f"Status command error: {str(e)}", exc_info=True)
-        gcmd.respond_raw("Error retrieving status")
 
-cmd_ACE_DEBUG_help = "Debug ACE connection"
-def cmd_ACE_DEBUG(self, gcmd):
-    """Обработчик команды ACE_DEBUG"""
-    method = gcmd.get('METHOD')
-    params = gcmd.get('PARAMS', '{}')
-    response_event = threading.Event()
-    response_data = [None]
-    def callback(response):
-        response_data[0] = response
-        response_event.set()
-    try:
-        request = {"method": method}
-        if params.strip():
-            try:
-                request["params"] = json.loads(params)
-            except json.JSONDecodeError:
-                gcmd.respond_raw("Invalid PARAMS format")
+
+    cmd_ACE_PARK_TO_TOOLHEAD_help = "Park filament to toolhead"
+    def cmd_ACE_PARK_TO_TOOLHEAD(self, gcmd):
+        """Обработчик команды ACE_PARK_TO_TOOLHEAD"""
+        try:
+            if self._get_park_in_progress():
+                gcmd.respond_raw("Already parking to toolhead")
                 return
-        self.send_request(request, callback)
-        if not response_event.wait(self._response_timeout):
-            gcmd.respond_raw("Timeout waiting for response")
-            return
-        response = response_data[0]
-        if response is None:
-            gcmd.respond_raw("No response received")
-            return
-        if method in ["get_info", "get_status"] and 'result' in response:
-            result = response['result']
-            output = []
-            if method == "get_info":
-                output.append("=== Device Info ===")
-                output.append(f"Model: {result.get('model', 'Unknown')}")
-                output.append(f"Firmware: {result.get('firmware', 'Unknown')}")
-                output.append(f"Hardware: {result.get('hardware', 'Unknown')}")
-                output.append(f"Serial: {result.get('serial', 'Unknown')}")
-            else:
-                output.append("=== Status ===")
-                output.append(f"State: {result.get('status', 'Unknown')}")
-                output.append(f"Temperature: {result.get('temp', 'Unknown')}")
-                output.append(f"Fan Speed: {result.get('fan_speed', 'Unknown')}")
-                for slot in result.get('slots', []):
-                    output.append(f"\nSlot {slot.get('index', '?')}:")
-                    output.append(f"  Status: {slot.get('status', 'Unknown')}")
-                    output.append(f"  Type: {slot.get('type', 'Unknown')}")
-                    output.append(f"  Color: {slot.get('color', 'Unknown')}")
-            gcmd.respond_info("\n".join(output))
-        else:
-            gcmd.respond_info(json.dumps(response, indent=2))
-    except Exception as e:
-        logging.error(f"Debug command error: {str(e)}", exc_info=True)
-        gcmd.respond_raw(f"Error: {str(e)}")
-
-cmd_ACE_FILAMENT_INFO_help = 'ACE_FILAMENT_INFO INDEX='
-def cmd_ACE_FILAMENT_INFO(self, gcmd):
-    """Handler for ACE_FILAMENT_INFO command"""
-    index = gcmd.get_int('INDEX', minval=0, maxval=3)
-    try:
-        def callback(response):
-            if 'result' in response:
-                slot_info = response['result']
-                self.gcode.respond_info(str(slot_info))
-            else:
-                self.gcode.respond_info('Error: No result in response')
-        self.send_request(
-            request={"method": "get_filament_info", "params": {"index": index}},
-            callback=callback
-        )
-    except Exception as e:
-        logging.error(f"Filament info error: {str(e)}", exc_info=True)
-        self.gcode.respond_info('Error: ' + str(e))
-
-cmd_ACE_START_DRYING_help = "Start filament drying"
-def cmd_ACE_START_DRYING(self, gcmd):
-    """Обработчик команды ACE_START_DRYING"""
-    try:
-        temperature = gcmd.get_int('TEMP', minval=20, maxval=self.max_dryer_temperature)
-        duration = gcmd.get_int('DURATION', 240, minval=1)
-        def callback(response):
-            if response.get('code', 0) != 0:
-                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
-            else:
-                gcmd.respond_info(f"Drying started at {temperature}°C for {duration} minutes")
-        self.send_request({
-            "method": "drying",
-            "params": {
-                "temp": temperature,
-                "fan_speed": 7000,
-                "duration": duration * 60
-            }
-        }, callback)
-    except Exception as e:
-        logging.error(f"Start drying error: {str(e)}", exc_info=True)
-        gcmd.respond_raw(f"Error: {str(e)}")
-
-cmd_ACE_STOP_DRYING_help = "Stop filament drying"
-def cmd_ACE_STOP_DRYING(self, gcmd):
-    """Обработчик команды ACE_STOP_DRYING"""
-    try:
-        def callback(response):
-            if response.get('code', 0) != 0:
-                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
-            else:
-                gcmd.respond_info("Drying stopped")
-        self.send_request({"method": "drying_stop"}, callback)
-    except Exception as e:
-        logging.error(f"Stop drying error: {str(e)}", exc_info=True)
-        gcmd.respond_raw(f"Error: {str(e)}")
-
-cmd_ACE_ENABLE_FEED_ASSIST_help = "Enable feed assist"
-def cmd_ACE_ENABLE_FEED_ASSIST(self, gcmd):
-    """Обработчик команды ACE_ENABLE_FEED_ASSIST"""
-    try:
-        index = gcmd.get_int('INDEX', minval=0, maxval=3)
-        def callback(response):
-            if response.get('code', 0) != 0:
-                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
-            else:
-                with self._data_lock:
-                    self._feed_assist_index = index
-                gcmd.respond_info(f"Feed assist enabled for slot {index}")
-                self.dwell(0.3, on_main=True)
-        self.send_request({
-            "method": "start_feed_assist",
-            "params": {"index": index}
-        }, callback)
-    except Exception as e:
-        logging.error(f"Enable feed assist error: {str(e)}", exc_info=True)
-        gcmd.respond_raw(f"Error: {str(e)}")
-
-cmd_ACE_DISABLE_FEED_ASSIST_help = "Disable feed assist"
-def cmd_ACE_DISABLE_FEED_ASSIST(self, gcmd):
-    """Обработчик команды ACE_DISABLE_FEED_ASSIST"""
-    try:
-        index = gcmd.get_int('INDEX', self._get_feed_assist_index(), minval=0, maxval=3)
-        def callback(response):
-            if response.get('code', 0) != 0:
-                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
-            else:
-                with self._data_lock:
-                    self._feed_assist_index = -1
-                gcmd.respond_info(f"Feed assist disabled for slot {index}")
-                self.dwell(0.3, on_main=True)
-        self.send_request({
-            "method": "stop_feed_assist",
-            "params": {"index": index}
-        }, callback)
-    except Exception as e:
-        logging.error(f"Disable feed assist error: {str(e)}", exc_info=True)
-        gcmd.respond_raw(f"Error: {str(e)}")
-
-def _get_feed_assist_index(self) -> int:
-    with self._data_lock:
-        return self._feed_assist_index
-
-def _park_to_toolhead(self, index: int):
-    """Внутренний метод парковки филамента"""
-    try:
-        def callback(response):
-            if response.get('code', 0) != 0:
-                raise ValueError(f"ACE Error: {response.get('msg', 'Unknown error')}")
-            with self._data_lock:
-                self._assist_hit_count = 0
-                self._last_assist_count = response.get('result', {}).get('feed_assist_count', 0)
-                self._park_in_progress = True
-                self._park_index = index
-            self.dwell(0.3, on_main=True)
-        self.send_request({
-            "method": "start_feed_assist",
-            "params": {"index": index}
-        }, callback)
-    except Exception as e:
-        logging.error(f"Park to toolhead error: {str(e)}", exc_info=True)
-
-cmd_ACE_PARK_TO_TOOLHEAD_help = "Park filament to toolhead"
-def cmd_ACE_PARK_TO_TOOLHEAD(self, gcmd):
-    """Обработчик команды ACE_PARK_TO_TOOLHEAD"""
-    try:
-        if self._get_park_in_progress():
-            gcmd.respond_raw("Already parking to toolhead")
-            return
-        index = gcmd.get_int('INDEX', minval=0, maxval=3)
-        if self._info['slots'][index]['status'] != 'ready':
-            def run_gcode():
-                self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={index}")
-            self._main_queue.put(run_gcode)
-            return
-        self._park_to_toolhead(index)
-    except Exception as e:
-        logging.error(f"Park to toolhead command error: {str(e)}", exc_info=True)
-        gcmd.respond_raw(f"Error: {str(e)}")
-
-cmd_ACE_FEED_help = "Feed filament"
-def cmd_ACE_FEED(self, gcmd):
-    """Обработчик команды ACE_FEED"""
-    try:
-        index = gcmd.get_int('INDEX', minval=0, maxval=3)
-        length = gcmd.get_int('LENGTH', minval=1)
-        speed = gcmd.get_int('SPEED', self.feed_speed, minval=1)
-        def callback(response):
-            if response.get('code', 0) != 0:
-                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
-        self.send_request({
-            "method": "feed_filament",
-            "params": {
-                "index": index,
-                "length": length,
-                "speed": speed
-            }
-        }, callback)
-        self.dwell((length / speed) + 0.1, on_main=True)
-    except Exception as e:
-        logging.error(f"Feed command error: {str(e)}", exc_info=True)
-        gcmd.respond_raw(f"Error: {str(e)}")
-
-cmd_ACE_RETRACT_help = "Retract filament"
-def cmd_ACE_RETRACT(self, gcmd):
-    """Обработчик команды ACE_RETRACT"""
-    try:
-        index = gcmd.get_int('INDEX', minval=0, maxval=3)
-        length = gcmd.get_int('LENGTH', minval=1)
-        speed = gcmd.get_int('SPEED', self.retract_speed, minval=1)
-        def callback(response):
-            if response.get('code', 0) != 0:
-                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
-        self.send_request({
-            "method": "unwind_filament",
-            "params": {
-                "index": index,
-                "length": length,
-                "speed": speed
-            }
-        }, callback)
-        self.dwell((length / speed) + 0.1, on_main=True)
-    except Exception as e:
-        logging.error(f"Retract command error: {str(e)}", exc_info=True)
-        gcmd.respond_raw(f"Error: {str(e)}")
-
-cmd_ACE_CHANGE_TOOL_help = "Change tool"
-def cmd_ACE_CHANGE_TOOL(self, gcmd):
-    """Обработчик команды ACE_CHANGE_TOOL"""
-    try:
-        tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
-        was = self.variables.get('ace_current_index', -1)
-        if was == tool:
-            gcmd.respond_info(f"Tool already set to {tool}")
-            return
-        if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
-            self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
-            return
-        # Выполняем pre-toolchange в основном потоке
-        self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
-        # Сохраняем состояние
-        self.variables['ace_current_index'] = tool
-        self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
-        if was != -1:
-            # Выгружаем предыдущий филамент
-            gcmd.respond_info(f"Unloading filament from T{was}...")
-            self._execute_retract(was, gcmd)
-            # Добавляем задержку для ожидания завершения через таймер
-            def check_unload_complete(eventtime=None):
-                with self._data_lock:
-                    if self._info['status'] == 'ready':
-                        # Если выгрузка завершена, продолжаем
-                        if tool != -1:
-                            gcmd.respond_info(f"Loading filament to T{tool}...")
-                            self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-                        else:
-                            gcmd.respond_info(f"Tool T{was} unloaded, no tool selected")
-                        # Выполняем post-toolchange в основном потоке
-                        self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                        return self.reactor.NEVER  # Прекращаем таймер
-                    # Если выгрузка еще не завершена, проверяем снова через 0.5 секунды
-                    return self.reactor.monotonic() + 0.5
-            # Начинаем проверку завершения выгрузки
-            self.reactor.register_timer(check_unload_complete, self.reactor.NOW)
-        elif tool != -1:
-            # Если просто загрузка нового инструмента
-            gcmd.respond_info(f"Loading filament to T{tool}...")
-            self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-            self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-    except Exception as e:
-        gcmd.respond_raw(f"Error: {str(e)}")
-
-def _execute_retract(self, tool_index, gcmd):
-    """Улучшенная реализация выгрузки филамента"""
-    try:
-        # Отправка запроса на выгрузку
-        self.send_request({
-            "method": "unwind_filament",
-            "params": {
-                "index": tool_index,
-                "length": self.toolchange_retract_length,
-                "speed": self.retract_speed
-            }
-        }, lambda response: None)  # Callback можно оставить пустым или обработать ошибки
-        # Расчет времени выгрузки
-        retract_time = self.toolchange_retract_length / self.retract_speed
-        # Безопасная пауза через dwell
-        def retract_dwell():
-            self.dwell(retract_time + 0.5, on_main=True)
-        # Помещаем в основную очередь
-        self._main_queue.put(retract_dwell)
-        gcmd.respond_info(f"Started filament retract from T{tool_index}")
-    except Exception as e:
-        logging.error(f"Retract execution error: {str(e)}", exc_info=True)
-
-def _check_retract_status(self, eventtime):
-    """Проверка статуса выгрузки филамента через реактор"""
-    with self._data_lock:
-        if self._info['status'] == 'ready':
-            # Выгрузка завершена успешно
-            logging.info("Filament retract completed successfully")
+            index = gcmd.get_int('INDEX', minval=0, maxval=3)
+            if self._info['slots'][index]['status'] != 'ready':
+                def run_gcode():
+                    self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={index}")
+                self._main_queue.put(run_gcode)
+                return
+            self._park_to_toolhead(index)
+        except Exception as e:
+            logging.error(f"Park to toolhead command error: {str(e)}", exc_info=True)
+            gcmd.respond_raw(f"Error: {str(e)}")
+    
+    cmd_ACE_FEED_help = "Feed filament"
+    def cmd_ACE_FEED(self, gcmd):
+        """Обработчик команды ACE_FEED"""
+        try:
+            index = gcmd.get_int('INDEX', minval=0, maxval=3)
+            length = gcmd.get_int('LENGTH', minval=1)
+            speed = gcmd.get_int('SPEED', self.feed_speed, minval=1)
+            def callback(response):
+                if response.get('code', 0) != 0:
+                    gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
+            self.send_request({
+                "method": "feed_filament",
+                "params": {
+                    "index": index,
+                    "length": length,
+                    "speed": speed
+                }
+            }, callback)
+            self.dwell((length / speed) + 0.1, on_main=True)
+        except Exception as e:
+            logging.error(f"Feed command error: {str(e)}", exc_info=True)
+            gcmd.respond_raw(f"Error: {str(e)}")
+    
+    cmd_ACE_RETRACT_help = "Retract filament"
+    def cmd_ACE_RETRACT(self, gcmd):
+        """Обработчик команды ACE_RETRACT"""
+        try:
+            index = gcmd.get_int('INDEX', minval=0, maxval=3)
+            length = gcmd.get_int('LENGTH', minval=1)
+            speed = gcmd.get_int('SPEED', self.retract_speed, minval=1)
+            def callback(response):
+                if response.get('code', 0) != 0:
+                    gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
+            self.send_request({
+                "method": "unwind_filament",
+                "params": {
+                    "index": index,
+                    "length": length,
+                    "speed": speed
+                }
+            }, callback)
+            self.dwell((length / speed) + 0.1, on_main=True)
+        except Exception as e:
+            logging.error(f"Retract command error: {str(e)}", exc_info=True)
+            gcmd.respond_raw(f"Error: {str(e)}")
+    
+    cmd_ACE_CHANGE_TOOL_help = "Change tool"
+    def cmd_ACE_CHANGE_TOOL(self, gcmd):
+        """Обработчик команды ACE_CHANGE_TOOL"""
+        try:
+            tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
+            was = self.variables.get('ace_current_index', -1)
+            if was == tool:
+                gcmd.respond_info(f"Tool already set to {tool}")
+                return
+            if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
+                self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
+                return
+            # Выполняем pre-toolchange в основном потоке
+            self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
+            # Сохраняем состояние
+            self.variables['ace_current_index'] = tool
+            self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
+            if was != -1:
+                # Выгружаем предыдущий филамент
+                gcmd.respond_info(f"Unloading filament from T{was}...")
+                self._execute_retract(was, gcmd)
+                # Добавляем задержку для ожидания завершения через таймер
+                def check_unload_complete(eventtime=None):
+                    with self._data_lock:
+                        if self._info['status'] == 'ready':
+                            # Если выгрузка завершена, продолжаем
+                            if tool != -1:
+                                gcmd.respond_info(f"Loading filament to T{tool}...")
+                                self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+                            else:
+                                gcmd.respond_info(f"Tool T{was} unloaded, no tool selected")
+                            # Выполняем post-toolchange в основном потоке
+                            self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                            return self.reactor.NEVER  # Прекращаем таймер
+                        # Если выгрузка еще не завершена, проверяем снова через 0.5 секунды
+                        return self.reactor.monotonic() + 0.5
+                # Начинаем проверку завершения выгрузки
+                self.reactor.register_timer(check_unload_complete, self.reactor.NOW)
+            elif tool != -1:
+                # Если просто загрузка нового инструмента
+                gcmd.respond_info(f"Loading filament to T{tool}...")
+                self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+        except Exception as e:
+            gcmd.respond_raw(f"Error: {str(e)}")
+    
+    def _execute_retract(self, tool_index, gcmd):
+        """Улучшенная реализация выгрузки филамента"""
+        try:
+            # Отправка запроса на выгрузку
+            self.send_request({
+                "method": "unwind_filament",
+                "params": {
+                    "index": tool_index,
+                    "length": self.toolchange_retract_length,
+                    "speed": self.retract_speed
+                }
+            }, lambda response: None)  # Callback можно оставить пустым или обработать ошибки
+            # Расчет времени выгрузки
+            retract_time = self.toolchange_retract_length / self.retract_speed
+            # Безопасная пауза через dwell
+            def retract_dwell():
+                self.dwell(retract_time + 0.5, on_main=True)
+            # Помещаем в основную очередь
+            self._main_queue.put(retract_dwell)
+            gcmd.respond_info(f"Started filament retract from T{tool_index}")
+        except Exception as e:
+            logging.error(f"Retract execution error: {str(e)}", exc_info=True)
+    
+    def _check_retract_status(self, eventtime):
+        """Проверка статуса выгрузки филамента через реактор"""
+        with self._data_lock:
+            if self._info['status'] == 'ready':
+                # Выгрузка завершена успешно
+                logging.info("Filament retract completed successfully")
+                return self.reactor.NEVER  # Прекращаем таймер
+        if time.time() - self._retract_start_time >= 5.0:
+            # Таймаут при ожидании выгрузки
+            logging.error("Timeout waiting for filament retract completion")
             return self.reactor.NEVER  # Прекращаем таймер
-    if time.time() - self._retract_start_time >= 5.0:
-        # Таймаут при ожидании выгрузки
-        logging.error("Timeout waiting for filament retract completion")
-        return self.reactor.NEVER  # Прекращаем таймер
-    # Повторить проверку через 0.1 секунды
-    return eventtime + 0.1
+        # Повторить проверку через 0.1 секунды
+        return eventtime + 0.1
 
 def load_config(config):
     return ValgAce(config) 
