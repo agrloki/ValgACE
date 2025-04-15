@@ -1,14 +1,11 @@
-import os
 import time
 import serial
 import serial.tools.list_ports
 import threading
 import logging
-import logging.handlers
 import json
 import struct
 import queue
-import traceback
 from typing import Optional, Dict, Any, Callable
 from serial import SerialException
 from contextlib import contextmanager
@@ -339,7 +336,6 @@ class ValgAce:
                 # Проверка подключения
                 if not self._get_connected_state() and not self._reconnect():
                     raise SerialException("Device not connected")
-                
                 # Проверка переполнения очереди
                 if self._queue.qsize() >= self._max_queue_size:
                     logging.warning("Request queue overflow, clearing...")
@@ -360,21 +356,17 @@ class ValgAce:
                     # Регистрация таймера для очистки очереди
                     self.reactor.register_timer(clear_queue, self.reactor.NOW)
                     return False
-                
                 # Генерация ID запроса
                 if 'id' not in request:
                     request['id'] = self._get_next_request_id()
-                
                 # Кодирование данных в JSON
                 try:
                     payload = json.dumps(request).encode('utf-8')
                 except Exception as e:
                     logging.error(f"JSON encoding error: {str(e)}")
                     return False
-                
                 # Расчет CRC
                 crc = self._calc_crc(payload)
-                
                 # Формирование пакета
                 packet = (
                     bytes([0xFF, 0xAA]) +
@@ -383,19 +375,16 @@ class ValgAce:
                     struct.pack('<H', crc) +
                     bytes([0xFE])
                 )
-                
                 # Проверка состояния порта перед записью
                 if not hasattr(self, '_serial') or not self._serial.is_open:
                     if not self._reconnect():
                         return False
-                
                 # Отправка данных
                 try:
                     self._serial.write(packet)
                     with self._data_lock:
                         self.send_time = self.reactor.monotonic()
                     logging.debug(f"Request {request['id']} sent in {(self.reactor.monotonic()-start_time)*1000:.1f}ms")
-                    
                     # Добавление callback в карту обратных вызовов
                     if callback:
                         self._add_callback(request['id'], callback)
@@ -583,16 +572,15 @@ class ValgAce:
     def _start_heartbeat(self):
         self.heartbeat_timer = self.reactor.register_timer(
             self._heartbeat_handler, self.reactor.NOW)
-            
+
     def _heartbeat_handler(self, eventtime):
         if eventtime - self.last_heartbeat > self.heartbeat_timeout:
             logging.error("Heartbeat timeout, reconnecting...")
             self._reconnect()
             return eventtime + self.heartbeat_interval
-            
         self.send_request({"method": "heartbeat"}, self._heartbeat_callback)
         return eventtime + self.heartbeat_interval
-        
+
     def _heartbeat_callback(self, response):
         if response.get('result') == 'ok':
             self.last_heartbeat = self.reactor.monotonic()
@@ -653,6 +641,7 @@ class ValgAce:
     def _get_callback(self, request_id: int) -> Optional[Callable]:
         with self._callback_lock:
             return self._callback_map.pop(request_id, None)
+
     # ==================== G-CODE COMMANDS ====================
     cmd_ACE_STATUS_help = "Get current device status"
     def cmd_ACE_STATUS(self, gcmd):
