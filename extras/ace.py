@@ -32,8 +32,6 @@ class ValgAce:
         self.send_time = 0
         self._last_status_request = 0
         
-        # Инициализация логирования
-        self._init_logging(config)
         
         # Параметры таймаутов
         self._response_timeout = config.getfloat('response_timeout', 2.0)
@@ -79,49 +77,6 @@ class ValgAce:
         self._register_handlers()
         self._register_gcode_commands()
 
-    def _init_logging(self, config):
-        """Инициализация системы логирования"""
-        disable_logging = config.getboolean('disable_logging', False)
-        if disable_logging:
-            self.logger = logging.getLogger('ace')
-            self.logger.addHandler(logging.NullHandler())
-            return
-            
-        log_dir = config.get('log_dir', '/var/log/ace')
-        log_level = config.get('log_level', 'INFO').upper()
-        max_log_size = config.getint('max_log_size', 10) * 1024 * 1024
-        log_backup_count = config.getint('log_backup_count', 3)
-        
-        try:
-            os.makedirs(log_dir, exist_ok=True)
-        except OSError as e:
-            print(f"Error creating log directory: {e}")
-            log_dir = '/tmp'
-            
-        log_file = os.path.join(log_dir, 'ace.log')
-        log_format = '%(asctime)s [%(levelname)s] %(message)s'
-        date_format = '%Y-%m-%d %H:%M:%S'
-        
-        self.logger = logging.getLogger('ace')
-        self.logger.setLevel(getattr(logging, log_level, logging.INFO))
-        for handler in self.logger.handlers[:]:
-            self.logger.removeHandler(handler)
-        
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=max_log_size,
-            backupCount=log_backup_count
-        )
-        file_handler.setFormatter(logging.Formatter(log_format, date_format))
-        self.logger.addHandler(file_handler)
-        
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(logging.Formatter(log_format, date_format))
-        self.logger.addHandler(console_handler)
-        
-        self.logger.propagate = False
-        self.logger.info("ACE logging initialized")
-        logging.info("ACE internal logging engine initialized")
 
     def _find_ace_device(self) -> Optional[str]:
         """Поиск устройства ACE по VID/PID или описанию"""
@@ -132,14 +87,11 @@ class ValgAce:
         for port in serial.tools.list_ports.comports():
             if hasattr(port, 'vid') and hasattr(port, 'pid'):
                 if (port.vid, port.pid) in ACE_IDS['VID:PID']:
-                    self.logger.info(f"Found ACE device by VID/PID at {port.device}")
                     logging.info(f"Found ACE device by VID/PID at {port.device}")
                     return port.device
             if any(name in (port.description or '') for name in ACE_IDS['DESCRIPTION']):
-                self.logger.info(f"Found ACE device by description at {port.device}")
                 logging.info(f"Found ACE device by description at {port.device}")
                 return port.device
-        self.logger.warning("No ACE device found by auto-detection")
         logging.warning("No ACE device found by auto-detection")
         return None
 
@@ -197,7 +149,6 @@ class ValgAce:
             try:
                 yield
             except Exception as e:
-                self.logger.error(f"Serial operation error: {str(e)}", exc_info=True)
                 logging.error(f"Serial operation error: {str(e)}", exc_info=True)
 
     def _connect(self) -> bool:
@@ -209,7 +160,6 @@ class ValgAce:
             # Регистрируем таймер для попыток подключения
             self._connection_attempts = 0
             self.connection_timer = self.reactor.register_timer(self._attempt_connection, self.reactor.NOW)
-            self.logger.info("Connection attempts initiated via reactor timer")
             logging.info("Connection attempts initiated via reactor timer")
             return False  # Возвращаем False, так как подключение асинхронное
 
@@ -232,7 +182,6 @@ class ValgAce:
                     with self._data_lock:
                         self._connected = True
                         self._info['status'] = 'ready'
-                    self.logger.info(f"Connected to ACE at {self.serial_name}")
                     logging.info(f"Connected to ACE at {self.serial_name}")
 
                     # Запуск потоков только если они не работают
@@ -260,7 +209,6 @@ class ValgAce:
                     # Запрос информации о устройстве
                     def info_callback(response):
                         res = response['result']
-                        self.logger.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
                         logging.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
                         self.gcode.respond_info(f"Connected {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
 
@@ -268,10 +216,8 @@ class ValgAce:
                     return self.reactor.NEVER  # Прекращаем таймер после успешного подключения
 
             except SerialException as e:
-                self.logger.warning(f"Connection attempt {self._connection_attempts} failed: {str(e)}")
                 logging.warning(f"Connection attempt {self._connection_attempts} failed: {str(e)}")
                 if self._connection_attempts >= max_attempts:
-                    self.logger.error("Max connection attempts reached")
                     logging.error("Max connection attempts reached")
                     return self.reactor.NEVER  # Прекращаем попытки после достижения лимита
 
@@ -294,7 +240,6 @@ class ValgAce:
                         self._add_callback(request['id'], callback)
                         
                         if not self._send_request(request):
-                            self.logger.warning("Failed to send request, requeuing...")
                             logging.warning("Failed to send request, requeuing...")
                             self._queue.put(task)  # Возвращаем задачу в очередь
                             time.sleep(0.1)
@@ -302,12 +247,10 @@ class ValgAce:
                 
                 time.sleep(0.05)
             except SerialException:
-                self.logger.error("Serial write error")
                 logging.error("Serial write error")
                 if self._get_connected_state():
                     self._reconnect()
             except Exception as e:
-                self.logger.error(f"Writer loop error: {str(e)}")
                 logging.error(f"Writer loop error: {str(e)}")
                 time.sleep(0.5)
 
@@ -337,7 +280,6 @@ class ValgAce:
                         self.read_buffer = self.read_buffer[end_idx+1:]
                     
                     if len(msg) < 7 or msg[0:2] != bytes([0xFF, 0xAA]):
-                        self.logger.debug(f"Invalid message header: {msg}")
                         logging.debug(f"Invalid message header: {msg}")
                         continue
                         
@@ -345,12 +287,10 @@ class ValgAce:
                     expected_length = 4 + payload_len + 3
                     
                     if len(msg) < expected_length:
-                        self.logger.warning(f"Incomplete message received (expected {expected_length}, got {len(msg)})")
                         logging.warning(f"Incomplete message received (expected {expected_length}, got {len(msg)})")
                         incomplete_message_count += 1
                         
                         if incomplete_message_count > max_incomplete_messages_before_reset:
-                            self.logger.error("Too many incomplete messages, resetting connection")
                             logging.error("Too many incomplete messages, resetting connection")
                             self._reset_connection()
                             incomplete_message_count = 0
@@ -360,12 +300,10 @@ class ValgAce:
                     self._process_message(msg)
                     
             except SerialException as e:
-                self.logger.error(f"Read error: {str(e)}")
                 logging.error(f"Read error: {str(e)}")
                 self._reset_connection()
                 time.sleep(1.0)
             except Exception as e:
-                self.logger.error(f"Reader loop error: {str(e)}")
                 logging.error(f"Reader loop error: {str(e)}")
                 time.sleep(1.0)
 
@@ -385,19 +323,16 @@ class ValgAce:
                 if old_writer and old_writer.is_alive() and old_writer != threading.current_thread():
                     old_writer.join(timeout=2.0)
                     if old_writer.is_alive():
-                        self.logger.warning("Old writer thread still alive after join")
                         logging.warning("Old writer thread still alive after join")
                         
                 if old_reader and old_reader.is_alive() and old_reader != threading.current_thread():
                     old_reader.join(timeout=2.0)
                     if old_reader.is_alive():
-                        self.logger.warning("Old reader thread still alive after join")
                         logging.warning("Old reader thread still alive after join")
                         
                 return True
             return False
         except Exception as e:
-            self.logger.error(f"Reconnect error: {str(e)}")
             logging.warning(f"Reconnect error: {str(e)}")
             return False
 
@@ -420,7 +355,6 @@ class ValgAce:
                 if hasattr(self, '_serial'):
                     self._serial.close()
         except Exception as e:
-            self.logger.error(f"Disconnect error: {str(e)}")
             logging.error(f"Disconnect error: {str(e)}")
             
         current_thread = threading.current_thread()
@@ -429,27 +363,22 @@ class ValgAce:
             try:
                 self._writer_thread.join(timeout=2.0)
                 if self._writer_thread.is_alive():
-                    self.logger.warning("Writer thread still alive after join")
                     logging.warning("Writer thread still alive after join")
             except Exception as e:
-                self.logger.error(f"Writer thread join error: {str(e)}")
                 logging.warning(f"Writer thread join error: {str(e)}")
                 
         if hasattr(self, '_reader_thread') and self._reader_thread != current_thread:
             try:
                 self._reader_thread.join(timeout=2.0)
                 if self._reader_thread.is_alive():
-                    self.logger.warning("Reader thread still alive after join")
                     logging.warning("Reader thread still alive after join")
             except Exception as e:
-                self.logger.error(f"Reader thread join error: {str(e)}")
                 logging.error(f"Reader thread join error: {str(e)}")
                 
         if hasattr(self, 'main_timer'):
             try:
                 self.reactor.unregister_timer(self.main_timer)
             except Exception as e:
-                self.logger.error(f"Timer unregister error: {str(e)}")
                 logging.error(f"Timer unregister error: {str(e)}")
 
     def _calc_crc(self, buffer: bytes) -> int:
@@ -475,7 +404,6 @@ class ValgAce:
                 try:
                     payload = json.dumps(request).encode('utf-8')
                 except Exception as e:
-                    self.logger.error(f"JSON encoding error: {str(e)}")
                     logging.error(f"JSON encoding error: {str(e)}")
                     return False
                     
@@ -495,22 +423,18 @@ class ValgAce:
                     self._serial.write(packet)
                     with self._data_lock:
                         self.send_time = time.time()
-                    self.logger.debug(f"Request {request['id']} sent in {(time.time()-start_time)*1000:.1f}ms")
                     logging.debug(f"Request {request['id']} sent in {(time.time()-start_time)*1000:.1f}ms")
                     return True
                 except Exception as e:
-                    self.logger.error(f"Serial write error during send: {str(e)}")
                     logging.error(f"Serial write error during send: {str(e)}")
                     self._reset_connection()
                     return False
                     
             except SerialException as e:
-                self.logger.error(f"Send error: {str(e)}")
                 logging.error(f"Send error: {str(e)}")
                 self._reset_connection()
                 return False
             except Exception as e:
-                self.logger.error(f"Unexpected send error: {str(e)}")
                 logging.error(f"Unexpected send error: {str(e)}")
                 return False
 
@@ -526,7 +450,6 @@ class ValgAce:
         """Оптимизированная обработка сообщений"""
         try:
             if len(msg) < 7 or msg[0:2] != bytes([0xFF, 0xAA]):
-                self.logger.debug(f"Invalid message header: {msg}")
                 logging.debug(f"Invalid message header: {msg}")
                 return
                 
@@ -534,7 +457,6 @@ class ValgAce:
             expected_length = 4 + payload_len + 3
             
             if len(msg) < expected_length:
-                self.logger.warning(f"Incomplete message received (expected {expected_length}, got {len(msg)})")
                 logging.warning(f"Incomplete message received (expected {expected_length}, got {len(msg)})")
                 return
                 
@@ -542,7 +464,6 @@ class ValgAce:
             crc = struct.unpack('<H', msg[4+payload_len:4+payload_len+2])[0]
             
             if crc != self._calc_crc(payload):
-                self.logger.warning("CRC mismatch")
                 logging.warning("CRC mismatch")
                 return
                 
@@ -550,17 +471,13 @@ class ValgAce:
                 response = json.loads(payload.decode('utf-8'))
                 self._handle_response(response)
             except json.JSONDecodeError as je:
-                self.logger.error(f"JSON decode error: {str(je)} Data: {msg}")
                 logging.error(f"JSON decode error: {str(je)} Data: {msg}")
             except Exception as e:
-                self.logger.error(f"Message processing error: {str(e)} Data: {msg}", exc_info=True)
                 logging.error(f"Message processing error: {str(e)} Data: {msg}", exc_info=True)
                 
         except struct.error as se:
-            self.logger.error(f"Struct unpack error: {str(se)} Data: {msg}")
             logging.error(f"Struct unpack error: {str(se)} Data: {msg}")
         except Exception as e:
-            self.logger.error(f"General message processing error: {str(e)} Data: {msg}", exc_info=True)
             logging.error(f"General message processing error: {str(e)} Data: {msg}", exc_info=True)
 
     def _handle_response(self, response: dict):
@@ -571,7 +488,6 @@ class ValgAce:
                 try:
                     callback(response)
                 except Exception as e:
-                    self.logger.error(f"Callback error: {str(e)}")
                     logging.error(f"Callback error: {str(e)}")
                     
         if 'result' in response and isinstance(response['result'], dict):
@@ -600,7 +516,6 @@ class ValgAce:
        if not self._get_park_in_progress():
            return
            
-       self.logger.info(f"Parking completed for slot {self._get_park_index()}")
        logging.info(f"Parking completed for slot {self._get_park_index()}")
        try:
            # Остановка feed assist
@@ -617,7 +532,6 @@ class ValgAce:
                    )
                self._main_queue.put(run_gcode)
        except Exception as e:
-           self.logger.error(f"Parking completion error: {str(e)}", exc_info=True)
            logging.error(f"Parking completion error: {str(e)}", exc_info=True)
        finally:
            # Сброс состояния парковки
@@ -646,7 +560,6 @@ class ValgAce:
                 }, status_callback)
                 self._set_last_status_request(time.time())
             except Exception as e:
-                self.logger.error(f"Status request error: {str(e)}", exc_info=True)
                 logging.error(f"Status request error: {str(e)}", exc_info=True)
 
     def _main_eval(self, eventtime):
@@ -657,7 +570,6 @@ class ValgAce:
                if task:
                    task()
            except Exception as e:
-               self.logger.error(f"Main eval error: {str(e)}", exc_info=True)
                logging.error(f"Main eval error: {str(e)}", exc_info=True)
        next_event_time = eventtime + (0.05 if self._main_queue.qsize() > 0 else 0.1)
        return next_event_time
@@ -665,7 +577,6 @@ class ValgAce:
     def _handle_ready(self):
         """Обработчик готовности Klipper"""
         if not self._connect():
-            self.logger.error("Failed to connect to ACE on startup")
             logging.error("Failed to connect to ACE on startup")
 
     def _handle_disconnect(self):
@@ -675,7 +586,6 @@ class ValgAce:
     def send_request(self, request: Dict[str, Any], callback: Callable):
         """Отправка запроса с контролем очереди"""
         if self._queue.qsize() >= self._max_queue_size:
-            self.logger.warning("Request queue overflow, clearing...")
             logging.warning("Request queue overflow, clearing...")
             try:
                 while not self._queue.empty():
@@ -684,10 +594,8 @@ class ValgAce:
                         try:
                             cb({'error': 'Queue overflow'})
                         except Exception as e:
-                            self.logger.error(f"Queue overflow callback error: {str(e)}", exc_info=True)
                             logging.error(f"Queue overflow callback error: {str(e)}", exc_info=True)
             except Exception as e:
-                self.logger.error(f"Queue clear error: {str(e)}", exc_info=True)
                 logging.error(f"Queue clear error: {str(e)}", exc_info=True)
                 
         request['id'] = self._get_next_request_id()
@@ -701,7 +609,6 @@ class ValgAce:
            try:
                toolhead.dwell(delay)
            except Exception as e:
-               self.logger.error(f"Dwell error: {str(e)}", exc_info=True)
                logging.error(f"Dwell error: {str(e)}", exc_info=True)
 
        if on_main:
@@ -779,7 +686,6 @@ class ValgAce:
                 status = json.dumps(self._info, indent=2)
             gcmd.respond_info(f"ACE Status:\n{status}")
         except Exception as e:
-            self.logger.error(f"Status command error: {str(e)}", exc_info=True)
             logging.error(f"Status command error: {str(e)}", exc_info=True)
             gcmd.respond_raw("Error retrieving status")
 
@@ -837,7 +743,6 @@ class ValgAce:
             else:
                 gcmd.respond_info(json.dumps(response, indent=2))
         except Exception as e:
-            self.logger.error(f"Debug command error: {str(e)}", exc_info=True)
             logging.error(f"Debug command error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
 
@@ -858,7 +763,6 @@ class ValgAce:
                 callback=callback
             )
         except Exception as e:
-            self.logger.error(f"Filament info error: {str(e)}", exc_info=True)
             logging.error(f"Filament info error: {str(e)}", exc_info=True)
             self.gcode.respond_info('Error: ' + str(e))
 
@@ -884,7 +788,6 @@ class ValgAce:
                 }
             }, callback)
         except Exception as e:
-            self.logger.error(f"Start drying error: {str(e)}", exc_info=True)
             logging.error(f"Start drying error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
 
@@ -900,7 +803,6 @@ class ValgAce:
                     
             self.send_request({"method": "drying_stop"}, callback)
         except Exception as e:
-            self.logger.error(f"Stop drying error: {str(e)}", exc_info=True)
             logging.error(f"Stop drying error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
 
@@ -924,7 +826,6 @@ class ValgAce:
                 "params": {"index": index}
             }, callback)
         except Exception as e:
-            self.logger.error(f"Enable feed assist error: {str(e)}", exc_info=True)
             logging.error(f"Enable feed assist error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
 
@@ -948,7 +849,6 @@ class ValgAce:
                 "params": {"index": index}
             }, callback)
         except Exception as e:
-            self.logger.error(f"Disable feed assist error: {str(e)}", exc_info=True)
             logging.error(f"Disable feed assist error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
 
@@ -975,7 +875,6 @@ class ValgAce:
                 "params": {"index": index}
             }, callback)
         except Exception as e:
-            self.logger.error(f"Park to toolhead error: {str(e)}", exc_info=True)
             logging.error(f"Park to toolhead error: {str(e)}", exc_info=True)
 
     cmd_ACE_PARK_TO_TOOLHEAD_help = "Park filament to toolhead"
@@ -993,7 +892,6 @@ class ValgAce:
                return
            self._park_to_toolhead(index)
        except Exception as e:
-           self.logger.error(f"Park to toolhead command error: {str(e)}", exc_info=True)
            logging.error(f"Park to toolhead command error: {str(e)}", exc_info=True)
            gcmd.respond_raw(f"Error: {str(e)}")
 
@@ -1019,7 +917,6 @@ class ValgAce:
             }, callback)
             self.dwell((length / speed) + 0.1, on_main=True)
         except Exception as e:
-            self.logger.error(f"Feed command error: {str(e)}", exc_info=True)
             logging.error(f"Feed command error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
 
@@ -1045,7 +942,6 @@ class ValgAce:
             }, callback)
             self.dwell((length / speed) + 0.1, on_main=True)
         except Exception as e:
-            self.logger.error(f"Retract command error: {str(e)}", exc_info=True)
             logging.error(f"Retract command error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
 
@@ -1058,23 +954,23 @@ class ValgAce:
             if was == tool:
                 gcmd.respond_info(f"Tool already set to {tool}")
                 return
-            
+
             if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
                 self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
                 return
-            
+
             # Выполняем pre-toolchange в основном потоке
             self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
-            
+
             # Сохраняем состояние
             self.variables['ace_current_index'] = tool
             self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
-            
+
             if was != -1:
                 # Выгружаем предыдущий филамент
                 gcmd.respond_info(f"Unloading filament from T{was}...")
                 self._execute_retract(was, gcmd)
-                
+
                 # Добавляем задержку для ожидания завершения через таймер
                 def check_unload_complete(eventtime=None):
                     with self._data_lock:
@@ -1085,25 +981,24 @@ class ValgAce:
                                 self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
                             else:
                                 gcmd.respond_info(f"Tool T{was} unloaded, no tool selected")
-                            
+
                             # Выполняем post-toolchange в основном потоке
                             self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
                             return self.reactor.NEVER  # Прекращаем таймер
-                        
+
                         # Если выгрузка еще не завершена, проверяем снова через 0.5 секунды
                         return self.reactor.monotonic() + 0.5
-                
+
                 # Начинаем проверку завершения выгрузки
                 self.reactor.register_timer(check_unload_complete, self.reactor.NOW)
-            
+
             elif tool != -1:
                 # Если просто загрузка нового инструмента
                 gcmd.respond_info(f"Loading filament to T{tool}...")
                 self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
                 self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-        
+
         except Exception as e:
-            self.logger.error(f"Change tool error: {str(e)}", exc_info=True)
             gcmd.respond_raw(f"Error: {str(e)}")
             
     def _execute_retract(self, tool_index, gcmd):
@@ -1133,13 +1028,11 @@ class ValgAce:
         with self._data_lock:
             if self._info['status'] == 'ready':
                 # Выгрузка завершена успешно
-                self.logger.info("Filament retract completed successfully")
                 logging.info("Filament retract completed successfully")
                 return self.reactor.NEVER  # Прекращаем таймер
 
         if time.time() - self._retract_start_time >= 5.0:
             # Таймаут при ожидании выгрузки
-            self.logger.error("Timeout waiting for filament retract completion")
             logging.error("Timeout waiting for filament retract completion")
             return self.reactor.NEVER  # Прекращаем таймер
 
