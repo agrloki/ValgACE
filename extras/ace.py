@@ -951,15 +951,15 @@ class ValgAce:
         try:
             tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
             was = self.variables.get('ace_current_index', -1)
-            
+
             if was == tool:
                 gcmd.respond_info(f"Tool already set to {tool}")
                 return
-                
+
             if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
                 self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
                 return
-            
+
             # Создаем цепочку выполнения через таймер реактора
             def execute_toolchange_steps(step=0):
                 if step == 0:
@@ -971,16 +971,16 @@ class ValgAce:
                         self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
                         # Переходим к следующему шагу
                         self.reactor.register_timer(lambda e: execute_toolchange_steps(1), self.reactor.NOW)
-                    
+
                     # Помещаем выполнение в основной поток
                     self._main_queue.put(run_pre_toolchange)
-                    
+
                 elif step == 1:
                     if was != -1:
                         # Шаг 2: Выгружаем предыдущий филамент
                         gcmd.respond_info(f"Unloading filament from T{was}...")
                         self._execute_retract(was, gcmd)
-                        
+
                         # Настраиваем проверку завершения выгрузки
                         def check_unload_complete(eventtime=None):
                             with self._data_lock:
@@ -996,22 +996,54 @@ class ValgAce:
                                     return self.reactor.NEVER  # Прекращаем таймер
                             # Если выгрузка еще не завершена, проверяем снова через 0.5 секунды
                             return self.reactor.monotonic() + 0.5
-                            
+
                         # Начинаем проверку завершения выгрузки
                         self.reactor.register_timer(check_unload_complete, self.reactor.NOW)
                         return self.reactor.NEVER
-                        
+
                     elif tool != -1:
                         # Если просто загрузка нового инструмента
                         gcmd.respond_info(f"Loading filament to T{tool}...")
-                        self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-                        self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                
+                        
+                        def run_park_and_post():
+                            def post_toolchange_callback():
+                                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                            
+                            def park_complete_callback():
+                                # Когда парковка завершена, вызываем post-toolchange
+                                self._main_queue.put(post_toolchange_callback)
+                            
+                            # Устанавливаем callback для завершения парковки
+                            with self._data_lock:
+                                self._park_is_toolchange = True
+                                self._park_previous_tool = was
+                                self._park_index = tool
+                            
+                            # Выполняем парковку
+                            self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+                            
+                            # Проверяем статус завершения через таймер реактора
+                            def check_park_complete(eventtime):
+                                with self._data_lock:
+                                    if not self._park_in_progress:
+                                        # Парковка завершена
+                                        park_complete_callback()
+                                        return self.reactor.NEVER  # Прекращаем таймер
+                                
+                                # Если парковка еще не завершена, проверяем снова через 0.5 секунды
+                                return eventtime + 0.5
+                            
+                            # Регистрируем таймер проверки завершения
+                            self.reactor.register_timer(check_park_complete, self.reactor.NOW)
+                        
+                        # Помещаем выполнение в основной поток
+                        self._main_queue.put(run_park_and_post)
+
                 return self.reactor.NEVER
-            
+
             # Запускаем цепочку выполнения
             self.reactor.register_timer(lambda e: execute_toolchange_steps(0), self.reactor.NOW)
-            
+
         except Exception as e:
             gcmd.respond_raw(f"Error: {str(e)}")
             
