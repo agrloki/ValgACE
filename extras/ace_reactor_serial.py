@@ -33,6 +33,9 @@ class ValgAce:
         self._last_status_request = 0
         self.reader_timer = None
         self.writer_timer = None
+        self._connection_attempts = 0
+        self.connection_timer = self.reactor.register_timer(self._connection_handler, self.reactor.NOW)
+        
         # Инициализация логирования
         self._init_logging(config)
         
@@ -203,110 +206,66 @@ class ValgAce:
                 self.logger.error(f"Serial operation error: {str(e)}", exc_info=True)
                 logging.error(f"Serial operation error: {str(e)}", exc_info=True)
 
-    def _connect(self) -> bool:
-        """Попытка подключения к устройству"""
+    def _connection_handler(self, eventtime=None):
+        """Унифицированный обработчик подключения"""
         with self._serial_lock:
-            if self._connected:
-                return True
-            for attempt in range(self._max_connection_attempts):
-                try:
-                    self._serial = serial.Serial(
-                        port=self.serial_name,
-                        baudrate=self.baud,
-                        timeout=self._read_timeout,
-                        write_timeout=self._write_timeout)
-                    if self._serial.is_open:
-                        with self._data_lock:
-                            self._connected = True
-                            self._info['status'] = 'ready'
-
-                        # Запускаем таймеры вместо потоков
-                        self._start_writer()
-                        self._start_reader()
-
-                        if not hasattr(self, 'main_timer'):
-                            self.main_timer = self.reactor.register_timer(
-                                self._main_eval, self.reactor.NOW)
-
-                        def info_callback(response):
-                            res = response['result']
-                            self.logger.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-                            logging.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-                            self.gcode.respond_info(f"Connected {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-
-                        self.send_request({"method": "get_info"}, info_callback)
-                        return True
-                except SerialException as e:
-                    self.logger.warning(f"Connection attempt {attempt + 1} failed: {str(e)}")
-                    logging.warning(f"Connection attempt {attempt + 1} failed: {str(e)}")
-            self.logger.error("Failed to connect to ACE device")
-            logging.error("Failed to connect to ACE device")
-            return False
-
-    def _attempt_connection(self, eventtime):
-        """Попытка подключения через реактор"""
-        max_attempts = self._max_connection_attempts
-        with self._serial_lock:
-            if self._connected:
-                return self.reactor.NEVER  # Прекращаем попытки, если уже подключены
+            # Если уже подключены, прекращаем попытки
+            if self._get_connected_state():
+                return self.reactor.NEVER
 
             try:
+                # Проверяем максимальное количество попыток
+                if self._connection_attempts >= self._max_connection_attempts:
+                    self.logger.error("Max connection attempts reached")
+                    logging.error("Max connection attempts reached")
+                    return eventtime + 5.0  # Повторная проверка через 5 секунд
+
                 self._connection_attempts += 1
+                self.logger.info(f"Attempting connection ({self._connection_attempts}/{self._max_connection_attempts})")
+
+                # Попытка открыть последовательный порт
                 self._serial = serial.Serial(
                     port=self.serial_name,
                     baudrate=self.baud,
                     timeout=self._read_timeout,
                     write_timeout=self._write_timeout
                 )
+
                 if self._serial.is_open:
                     with self._data_lock:
                         self._connected = True
                         self._info['status'] = 'ready'
+
                     self.logger.info(f"Connected to ACE at {self.serial_name}")
                     logging.info(f"Connected to ACE at {self.serial_name}")
 
-                    # Запуск потоков только если они не работают
-                    if not hasattr(self, '_writer_thread') or not self._writer_thread.is_alive():
-                        self._writer_thread = threading.Thread(
-                            target=self._writer_loop,
-                            name="ACE_Writer"
-                        )
-                        self._writer_thread.daemon = True
-                        self._writer_thread.start()
-
-                    if not hasattr(self, '_reader_thread') or not self._reader_thread.is_alive():
-                        self._reader_thread = threading.Thread(
-                            target=self._reader_loop,
-                            name="ACE_Reader"
-                        )
-                        self._reader_thread.daemon = True
-                        self._reader_thread.start()
+                    # Запуск необходимых компонентов
+                    self._start_writer()
+                    self._start_reader()
 
                     if not hasattr(self, 'main_timer'):
                         self.main_timer = self.reactor.register_timer(
-                            self._main_eval, self.reactor.NOW
-                        )
+                            self._main_eval, self.reactor.NOW)
 
                     # Запрос информации о устройстве
                     def info_callback(response):
                         res = response['result']
                         self.logger.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
-                        logging.info(f"Device info: {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
                         self.gcode.respond_info(f"Connected {res.get('model', 'Unknown')} {res.get('firmware', 'Unknown')}")
 
                     self.send_request({"method": "get_info"}, info_callback)
-                    return self.reactor.NEVER  # Прекращаем таймер после успешного подключения
+
+                    # Сброс счетчика попыток после успешного подключения
+                    self._connection_attempts = 0
+
+                    return self.reactor.NEVER  # Прекращаем попытки после успешного подключения
 
             except SerialException as e:
-                self.logger.warning(f"Connection attempt {self._connection_attempts} failed: {str(e)}")
-                logging.warning(f"Connection attempt {self._connection_attempts} failed: {str(e)}")
-                if self._connection_attempts >= max_attempts:
-                    self.logger.error("Max connection attempts reached")
-                    logging.error("Max connection attempts reached")
-                    return self.reactor.NEVER  # Прекращаем попытки после достижения лимита
+                self.logger.warning(f"Connection attempt failed: {str(e)}")
+                logging.warning(f"Connection attempt failed: {str(e)}")
 
-            # Повторить попытку через 1 секунду
-            return eventtime + 1.0
+            # Если подключение не удалось, планируем следующую попытку
+            return eventtime + 1.0  # Повторить через 1 секунду
 
     def _start_writer(self):
         """Запуск цикла записи через реактор"""
@@ -406,10 +365,12 @@ class ValgAce:
         # Запланировать следующую проверку
         return eventtime + 0.05
 
-    def _reconnect(self) -> bool:
-        """Безопасное переподключение"""
-        if not self._get_connected_state():
-            return self._connect()
+    def _reconnect(self):
+        """Планирование повторного подключения"""
+        with self._data_lock:
+            self._connected = False
+        self.connection_timer = self.reactor.register_timer(
+            self._connection_handler, self.reactor.NOW)
 
     def _reset_connection(self):
         """Сброс соединения"""
@@ -460,18 +421,18 @@ class ValgAce:
     def _send_request(self, request: Dict[str, Any], callback: Callable = None) -> bool:
         """Отправка запроса с контролем очереди и использованием реактора"""
         start_time = self.reactor.monotonic()
-        
+
         with self._serial_operation():
             try:
                 # Проверка подключения
                 if not self._get_connected_state() and not self._reconnect():
                     raise SerialException("Device not connected")
-                
+
                 # Проверка переполнения очереди
                 if self._queue.qsize() >= self._max_queue_size:
                     self.logger.warning("Request queue overflow, clearing...")
                     logging.warning("Request queue overflow, clearing...")
-                    
+
                     # Очистка очереди через реактор
                     def clear_queue(eventtime):
                         try:
@@ -486,18 +447,18 @@ class ValgAce:
                         except Exception as clear_error:
                             self.logger.error(f"Queue clear error: {str(clear_error)}", exc_info=True)
                             logging.error(f"Queue clear error: {str(clear_error)}", exc_info=True)
-                        
+
                         # После очистки очереди можно попробовать отправить запрос снова
                         return self._send_request(request, callback)
-                    
+
                     # Регистрация таймера для очистки очереди
                     self.reactor.register_timer(clear_queue, self.reactor.NOW)
                     return False
-                
+
                 # Генерация ID запроса
                 if 'id' not in request:
                     request['id'] = self._get_next_request_id()
-                
+
                 # Кодирование данных в JSON
                 try:
                     payload = json.dumps(request).encode('utf-8')
@@ -505,10 +466,10 @@ class ValgAce:
                     self.logger.error(f"JSON encoding error: {str(e)}")
                     logging.error(f"JSON encoding error: {str(e)}")
                     return False
-                
+
                 # Расчет CRC
                 crc = self._calc_crc(payload)
-                
+
                 # Формирование пакета
                 packet = (
                     bytes([0xFF, 0xAA]) +
@@ -517,12 +478,12 @@ class ValgAce:
                     struct.pack('<H', crc) +
                     bytes([0xFE])
                 )
-                
+
                 # Проверка состояния порта перед записью
                 if not hasattr(self, '_serial') or not self._serial.is_open:
                     if not self._reconnect():
                         return False
-                
+
                 # Отправка данных
                 try:
                     self._serial.write(packet)
@@ -530,24 +491,24 @@ class ValgAce:
                         self.send_time = self.reactor.monotonic()
                     self.logger.debug(f"Request {request['id']} sent in {(self.reactor.monotonic()-start_time)*1000:.1f}ms")
                     logging.debug(f"Request {request['id']} sent in {(self.reactor.monotonic()-start_time)*1000:.1f}ms")
-                    
+
                     # Добавление callback в карту обратных вызовов
                     if callback:
                         self._add_callback(request['id'], callback)
-                    
+
                     return True
                 except SerialException as e:
                     self.logger.error(f"Serial write error during send: {str(e)}")
                     logging.error(f"Serial write error during send: {str(e)}")
                     self._handle_serial_error(e)
                     return False
-            
+
             except SerialException as e:
                 self.logger.error(f"Send error: {str(e)}")
                 logging.error(f"Send error: {str(e)}")
                 self._handle_serial_error(e)
                 return False
-            
+
             except Exception as e:
                 self.logger.error(f"Unexpected send error: {str(e)}", exc_info=True)
                 logging.error(f"Unexpected send error: {str(e)}", exc_info=True)
@@ -704,10 +665,8 @@ class ValgAce:
 
     def _handle_ready(self):
         """Обработчик готовности Klipper"""
-        if not self._connect():
-            self.logger.error("Failed to connect to ACE on startup")
-            logging.error("Failed to connect to ACE on startup")
-
+        self.connection_timer = self.reactor.register_timer(self._connection_handler, self.reactor.NOW)
+        
     def _handle_disconnect(self):
         """Обработчик отключения Klipper"""
         self._disconnect()
