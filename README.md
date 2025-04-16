@@ -75,7 +75,7 @@ The script will perform all necessary actions.
 - ACE_RETRACT INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи>  Откат филамента
 ## Не работает корректно(
 - ACE_CHANGE_TOOL TOOL=-1 - 0 - 3          Смена инструмента. (На данный момент корректно не работает, необходимо)
-##-------------------------
+## -------------------------
 - ACE_FILAMENT_INFO                        Информация о филаменте если есть rfid метка
 
 ## Available Commands:
