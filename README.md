@@ -73,7 +73,9 @@ The script will perform all necessary actions.
 - ACE_PARK_TO_TOOLHEAD INDEX=0 - 3         Припарковать филамент к голове индекс указывает какой порт будет припаркован
 - ACE_FEED INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи>     Подача филамента
 - ACE_RETRACT INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи>  Откат филамента
-- ACE_CHANGE_TOOL TOOL=-1 - 0 - 3          Смена инструмента. 
+## Не работает корректно(
+- ACE_CHANGE_TOOL TOOL=-1 - 0 - 3          Смена инструмента. (На данный момент корректно не работает, необходимо)
+##-------------------------
 - ACE_FILAMENT_INFO                        Информация о филаменте если есть rfid метка
 
 ## Available Commands:
@@ -95,9 +97,9 @@ The script will perform all necessary actions.
 - ACE_FEED INDEX=0-3 LENGTH=<feed_length> SPEED=<feed_speed> - Feed filament
 
 - ACE_RETRACT INDEX=0-3 LENGTH=<retract_length> SPEED=<retract_speed> - Retract filament
-
+## Do not work correctly at now :(
 - ACE_CHANGE_TOOL TOOL=-1/0/1/2/3 - Change tool (use -1 for no tool)
-
+## ---------------------------------------
 - ACE_FILAMENT_INFO - Show filament information (if RFID tag is present)
 
 Key notes:
