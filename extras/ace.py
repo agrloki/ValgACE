@@ -9,6 +9,7 @@ import json
 import struct
 import queue
 import traceback
+import toolhead
 from typing import Optional, Dict, Any, Callable
 from serial import SerialException
 from contextlib import contextmanager
@@ -993,6 +994,7 @@ class ValgAce:
 
             # Выполняем pre-toolchange в основном потоке
             self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
+            toolhead.wait_moves()
             # Сохраняем состояние
             self.variables['ace_current_index'] = tool
             self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
