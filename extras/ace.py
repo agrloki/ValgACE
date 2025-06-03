@@ -9,6 +9,7 @@ import json
 import struct
 import queue
 import traceback
+import toolhead
 from typing import Optional, Dict, Any, Callable
 from serial import SerialException
 from contextlib import contextmanager
@@ -942,6 +943,7 @@ class ValgAce:
             self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
             self._park_is_toolchange = True
             self._park_previous_tool = was
+            toolhead.wait_moves()
             self.variables['ace_current_index'] = tool
             self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
             
@@ -960,15 +962,18 @@ class ValgAce:
                 }, callback)
                 self.dwell((self.toolchange_retract_length / self.retract_speed) + 0.1)
                 
-                while self._info['status'] != 'ready':
+                while self._info['slots'][was]['status'] != 'ready':
                     self.dwell(1.0)
                     
                 self.dwell(0.25)
                 
                 if tool != -1:
                     self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+                    while self._info['slots'][was]['status'] != 'ready':
+                        self.dwell(1.0)
                 else:
                     self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                    toolhead.wait_moves()
             else:
                 self._park_to_toolhead(tool)
         except Exception as e:
