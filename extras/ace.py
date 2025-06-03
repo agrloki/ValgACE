@@ -9,7 +9,6 @@ import json
 import struct
 import queue
 import traceback
-import toolhead
 from typing import Optional, Dict, Any, Callable
 from serial import SerialException
 from contextlib import contextmanager
@@ -17,6 +16,7 @@ from contextlib import contextmanager
 class ValgAce:
     def __init__(self, config):
         self.printer = config.get_printer()
+        self.toolhead = None
         self.reactor = self.printer.get_reactor()
         self.gcode = self.printer.lookup_object('gcode')
         self._name = config.get_name()
@@ -613,6 +613,9 @@ class ValgAce:
         if not self._connect():
             self.logger.error("Failed to connect to ACE on startup")
             logging.error("Failed to connect to ACE on startup")
+        self.toolhead = self.printer.lookup_object('toolhead')
+        if self.toolhead is None:
+           raise self.printer.config_error("Toolhead not found in ValgAce module")
 
     def _handle_disconnect(self):
         """Обработчик отключения Klipper"""
@@ -943,7 +946,7 @@ class ValgAce:
             self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
             self._park_is_toolchange = True
             self._park_previous_tool = was
-            toolhead.wait_moves()
+            self.toolhead.wait_moves()
             self.variables['ace_current_index'] = tool
             self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
             
@@ -973,7 +976,7 @@ class ValgAce:
                         self.dwell(1.0)
                 else:
                     self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                    toolhead.wait_moves()
+                    self.toolhead.wait_moves()
             else:
                 self._park_to_toolhead(tool)
         except Exception as e:
