@@ -969,7 +969,7 @@ class ValgAce:
                 
                 if tool != -1:
                     self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-                    while self._info['slots'][was]['status'] != 'ready':
+                    while self._info['slots'][tool]['status'] != 'ready':
                         self.dwell(1.0)
                 else:
                     self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
