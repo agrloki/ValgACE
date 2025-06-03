@@ -977,6 +977,7 @@ class ValgAce:
                 else:
                     self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
                     self.toolhead.wait_moves()
+                    gcmd.respond_info(f"Tool changed from {was} to {tool}")
             else:
                 self._park_to_toolhead(tool)
         except Exception as e:
