@@ -1,3 +1,5 @@
+# File: ace.py — ValgAce module for Klipper
+
 import os
 import serial
 import serial.tools.list_ports
@@ -16,11 +18,8 @@ class ValgAce:
         self.toolhead = None
         self.reactor = self.printer.get_reactor()
         self.gcode = self.printer.lookup_object('gcode')
-        self._name = config.get_name()
-        if self._name.startswith('ace '):
-            self._name = self._name[4:]
+        self._name = 'ace'
         self.variables = self.printer.lookup_object('save_variables').allVariables
-        self.lock = False  # Не используется без потоков
         self.read_buffer = bytearray()
         self.send_time = 0
         self._last_status_request = 0
@@ -52,7 +51,7 @@ class ValgAce:
         self._connection_attempts = 0
         self._max_connection_attempts = 5
 
-        # Параметры работы
+        # Работа
         self._feed_assist_index = -1
         self._last_assist_count = 0
         self._assist_hit_count = 0
@@ -65,7 +64,7 @@ class ValgAce:
         self._queue = queue.Queue(maxsize=self._max_queue_size)
         self._main_queue = queue.Queue()
 
-        # Инициализация порта и реактора
+        # Порты и реактор
         self._serial = None
         self._reader_timer = None
         self._writer_timer = None
@@ -165,9 +164,10 @@ class ValgAce:
 
                     self.send_request({"method": "get_info"}, info_callback)
 
-                    # Запуск циклов через реактор
-                    self._reader_timer = self.reactor.register_timer(self._reader_loop, self.reactor.NOW)
-                    self._writer_timer = self.reactor.register_timer(self._writer_loop, self.reactor.NOW)
+                    if self._reader_timer is None:
+                        self._reader_timer = self.reactor.register_timer(self._reader_loop, self.reactor.NOW)
+                    if self._writer_timer is None:
+                        self._writer_timer = self.reactor.register_timer(self._writer_loop, self.reactor.NOW)
                     return True
             except SerialException as e:
                 print(f"Connection attempt {attempt + 1} failed: {str(e)}")
@@ -413,12 +413,6 @@ class ValgAce:
         self.dwell(1.0, lambda: None)
         self._connect()
 
-    def _get_next_request_id(self) -> int:
-        self._request_id += 1
-        if self._request_id >= 300000:
-            self._request_id = 0
-        return self._request_id
-
     def cmd_ACE_STATUS(self, gcmd):
         try:
             status = json.dumps(self._info, indent=2)
@@ -573,18 +567,22 @@ class ValgAce:
     def cmd_ACE_CHANGE_TOOL(self, gcmd):
         tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
         was = self.variables.get('ace_current_index', -1)
+
         if was == tool:
             gcmd.respond_info(f"Tool already set to {tool}")
             return
+
         if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
             self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
             return
+
         self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
         self._park_is_toolchange = True
         self._park_previous_tool = was
         self.toolhead.wait_moves()
         self.variables['ace_current_index'] = tool
         self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
+
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
@@ -600,6 +598,8 @@ class ValgAce:
             self.dwell((self.toolchange_retract_length / self.retract_speed) + 0.1, lambda: None)
             self.dwell(1.0, lambda: None)
             if tool != -1:
+                while self._info['slots'][was]['status'] != 'ready':
+                    self.dwell(1.0, lambda: None)
                 self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
                 self.dwell(1.0, lambda: None)
             else:
@@ -609,5 +609,15 @@ class ValgAce:
         else:
             self._park_to_toolhead(tool)
 
-    def load_config(self, config):
+    def _wait_for_slot_ready(self, index, on_ready, event_time):
+        if self._info['slots'][index]['status'] == 'ready':
+            on_ready()
+            return self.reactor.NEVER
+        return event_time + 0.5
+
+    def load_config(config):
         return ValgAce(config)
+
+
+def load_config(config):
+    return ValgAce(config)
