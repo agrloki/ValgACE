@@ -9,7 +9,6 @@ import json
 import struct
 import queue
 import traceback
-import toolhead
 from typing import Optional, Dict, Any, Callable
 from serial import SerialException
 from contextlib import contextmanager
