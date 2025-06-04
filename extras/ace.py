@@ -18,6 +18,7 @@ class ValgAce:
     def __init__(self, config):
         self.printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
+        self.toolhead = None
         self.gcode = self.printer.lookup_object('gcode')
         self._name = config.get_name()
         if self._name.startswith('ace '):
@@ -532,6 +533,7 @@ class ValgAce:
                        f'_ACE_POST_TOOLCHANGE FROM={self._get_park_previous_tool()} TO={self._get_park_index()}'
                    )
                self._main_queue.put(run_gcode)
+               self.toolhead.wait_moves()
        except Exception as e:
            logging.error(f"Parking completion error: {str(e)}", exc_info=True)
        finally:
@@ -579,7 +581,10 @@ class ValgAce:
         """Обработчик готовности Klipper"""
         if not self._connect():
             logging.error("Failed to connect to ACE on startup")
-
+        self.toolhead = self.printer.lookup_object('toolhead')
+        if self.toolhead is None:
+           raise self.printer.config_error("Toolhead not found in ValgAce module")
+        
     def _handle_disconnect(self):
         """Обработчик отключения Klipper"""
         self._disconnect()
@@ -994,7 +999,7 @@ class ValgAce:
 
             # Выполняем pre-toolchange в основном потоке
             self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
-            toolhead.wait_moves()
+            self.toolhead.wait_moves()
             # Сохраняем состояние
             self.variables['ace_current_index'] = tool
             self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
@@ -1010,7 +1015,7 @@ class ValgAce:
                         # Настраиваем проверку завершения выгрузки
                         def check_unload_complete(eventtime=None):
                             with self._data_lock:
-                                if self._info['status'] == 'ready':
+                                if self._info['slots'][tool]['status'] == 'ready':
                                     # Если выгрузка завершена, продолжаем
                                     if tool != -1:
                                         gcmd.respond_info(f"Loading filament to T{tool}...")
@@ -1039,6 +1044,7 @@ class ValgAce:
                     def run_post_toolchange():
                         try:
                             self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                            self.toolhead.wait_moves()
                             gcmd.respond_info("Tool change completed successfully")
                         except Exception as e:
                             logging.error(f"Post-toolchange error: {str(e)}")
@@ -1061,6 +1067,7 @@ class ValgAce:
         def run_post_toolchange():
             try:
                 self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                self.toolhead.wait_moves()
             except Exception as e:
                 logging.error(f"Post-toolchange error: {str(e)}", exc_info=True)
         self._main_queue.put(run_post_toolchange)
@@ -1083,13 +1090,13 @@ class ValgAce:
 
         # Регистрация таймера для проверки статуса
         self.reactor.register_timer(
-            self._check_retract_status, self.reactor.NOW)
+            self._check_retract_status, tool_index, self.reactor.NOW)
         gcmd.respond_info(f"Started filament retract from T{tool_index}")
 
-    def _check_retract_status(self, eventtime):
+    def _check_retract_status(self, tool_index, eventtime):
         """Проверка статуса выгрузки филамента через реактор"""
         with self._data_lock:
-            if self._info['status'] == 'ready':
+            if self._info['slots'][tool_index]['status'] == 'ready':
                 # Выгрузка завершена успешно
                 logging.info("Filament retract completed successfully")
                 return self.reactor.NEVER  # Прекращаем таймер
