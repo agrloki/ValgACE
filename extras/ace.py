@@ -393,6 +393,10 @@ class ValgAce:
 
         self.reactor.register_timer(timer_handler, self.reactor.monotonic() + delay)
 
+    def pdwell(self, delay = 1.):
+        currTs = self.reactor.monotonic()
+        self.reactor.pause(currTs + delay)
+        
     def _main_eval(self, eventtime):
         while not self._main_queue.empty():
             try:
@@ -562,7 +566,7 @@ class ValgAce:
             "method": "unwind_filament",
             "params": {"index": index, "length": length, "speed": speed}
         }, callback)
-        self.dwell((length / speed) + 0.1, lambda: None)
+        self.pdwell((length / speed) + 0.1)
 
     def cmd_ACE_CHANGE_TOOL(self, gcmd):
         tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
@@ -595,13 +599,13 @@ class ValgAce:
                     "speed": self.retract_speed
                 }
             }, callback)
-            self.dwell((self.toolchange_retract_length / self.retract_speed) + 0.1, lambda: None)
-            self.dwell(1.0, lambda: None)
+            self.pdwell((self.toolchange_retract_length / self.retract_speed) + 0.1)
+            self.pdwell(1.0)
             if tool != -1:
                 while self._info['slots'][was]['status'] != 'ready':
-                    self.dwell(1.0, lambda: None)
+                    self.pdwell(1.0)
                 self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-                self.dwell(1.0, lambda: None)
+                self.pdwell(1.0)
             else:
                 self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
                 self.toolhead.wait_moves()
@@ -615,8 +619,8 @@ class ValgAce:
             return self.reactor.NEVER
         return event_time + 0.5
 
-    def load_config(config):
-        return ValgAce(config)
+   
+   
 
 
 def load_config(config):
