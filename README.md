@@ -17,6 +17,16 @@ and https://github.com/BlackFrogKok/BunnyACE
 
 макросами в ace.cfg и в настройках слайсеров.
 
+Ключевые моменты:
+
+Все индексы (порты) изменяются от 0 до 3
+
+Для выбора инструмента допустимые значения от -1 (выгрузить пластик из хотенда) до 3
+
+Команды подачи/отката требуют параметров длины и скорости
+
+Информация RFID доступна только для маркированных нитей
+
 ## English
 
 The core functionality works, and it operates stably on a clean Klipper installation. On customized versions from printer manufacturers, the stability may vary.
