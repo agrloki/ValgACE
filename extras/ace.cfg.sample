@@ -1,0 +1,245 @@
+# Please check that [save_variables] is above [ace] if you're using different config
+[save_variables]
+filename: ~/vars.cfg
+
+[respond]
+
+[ace]
+serial: /dev/serial/by-id/usb-ANYCUBIC_ACE_1-if00
+baud: 115200
+# Disable logging, default True
+#disable_logging: True
+#log_dir: ~/printer_data/logs
+#Уровни логирования DEBUG - для отладочной информации INFO - для основных событий WARNING - для предупреждений ERROR - для ошибок
+#log_level: DEBUG
+# Max log size in Mb
+#max_log_size: 10
+# Old logs count
+#log_backup_count: 3
+# Some timeout for serial
+# response_timeout: 2.0
+# read_timeout: 0.1
+# write_timeout: 0.5
+# Max queue size default 20 messages
+max_queue_size: 20
+# Default feeding speed, 10-25 in stock
+feed_speed: 25
+# Default retraction speed, 10-25 in stock
+retract_speed: 25
+# Length of the retract to make for toolchange
+toolchange_retract_length: 100
+# Park to toolhead hit count, default is 5, can be lowered if your setup works stably on lower values
+park_hit_count: 5
+# Max dryer temperature. If you want to fry your dryer, then you can! (Just joking, should be safe around ~60, but it's not tested yet)
+max_dryer_temperature: 55
+# Disables feed assist after toolchange. Defaults to true
+disable_assist_after_toolchange: True
+
+
+[gcode_macro _ACE_PRE_TOOLCHANGE]
+gcode:
+    # No-op
+    M117 Подготовка к смене филамента
+    {% set T = 220 %}
+    {% if printer.extruder.target != 0 %} # if there is a setpoint for extruder
+        {% if printer.extruder.temperature < printer.extruder.target %} # if not reached, heat
+#            M118 Heating from {printer.extruder.temperature} to {printer.extruder.target}.
+            SET_HEATER_TEMPERATURE HEATER=extruder TARGET={printer.extruder.target|float}
+            TEMPERATURE_WAIT SENSOR=extruder MINIMUM={printer.extruder.target|float} 
+        {% endif %}
+    {% else %} # if no setpoint for extruder
+        {% if printer.extruder.target < T %}  # heat to T.
+#            M118 No setpoint, heating to {T}.
+            SET_HEATER_TEMPERATURE HEATER=extruder TARGET={T}
+            TEMPERATURE_WAIT SENSOR=extruder MINIMUM={T}
+        {% endif %}
+    {% endif %}
+    {% if "xyz" not in printer.toolhead.homed_axes %}
+        G28
+        SAVE_GCODE_STATE NAME=FILAMENT_CHANGE_STATE
+    {% else %}
+        SAVE_GCODE_STATE NAME=FILAMENT_CHANGE_STATE
+    {% endif %}
+    {% if params.FROM is defined %}
+        {% set from_index = params.FROM|int %}
+        {% if from_index != -1 %}
+            # Сохраняем заданный слот
+            #{% set from_index = params.FROM|int %}
+            # Сообщаем о начале парковки
+            M118 Выключена подача филамента слот {from_index}.
+
+            # Запускаем парковку заданного слота
+	        ACE_DISABLE_FEED_ASSIST INDEX={from_index}
+        {% endif %}
+    {% else %}
+        # Если слот не задан выдаем ошибку
+        {action_respond_info("Index is lost")}
+        RESPOND TYPE=error MSG="Error INDEX is lost"
+    {% endif %}
+#   Обрезаем филамент    
+    {% set max_z = printer.toolhead.axis_maximum.z|float %}
+    {% set act_z = printer.toolhead.position.z|float %}
+    {% if act_z < (max_z - 5.0) %}
+        {% set Z = 5.0 %}
+    {% else %}
+        {% set Z = max_z - act_z %}
+    {% endif %}
+    G91                        ; relative for safe Z lift
+    G1 Z{Z}                    ; safe lifting
+    G90                         ; absolute for parking
+    {% if from_index != -1 %}
+        G1 X{245} Y{0} F7800    ; parking to knife place 
+    {% endif %}       
+#   Перемещаемся в зону очистки
+    G1 X-8 Y0 F7800
+    G91
+    {% if from_index != -1 %}
+        G1 E-70 F300
+    {% endif %}
+    G90
+
+[gcode_macro _ACE_POST_TOOLCHANGE]
+gcode:
+    # No-op
+    M117 Действия после смены филамента
+    {% if params.TO is defined %}
+        # Сохраняем заданный слот
+        {% set to_index = params.TO|int %}
+        {% if to_index != -1 %}
+            G91
+            G1 E100 F300
+            G90
+            G1 X5 Y0 F7800
+            G1 X-8 Y0 F7800
+        {% endif %}
+    {% else %}
+        # Если слот не задан выдаем ошибку
+        {action_respond_info("Index is lost")}
+        RESPOND TYPE=error MSG="Error INDEX is lost"
+    {% endif %}
+
+    {% if to_index != -1 %}
+
+        # Сообщаем о начале парковки
+        M118 Включена подача филамента слот {to_index}.
+
+        # Запускаем парковку заданного слота
+	    ACE_ENABLE_FEED_ASSIST INDEX={to_index}
+    {% endif %}
+    
+    RESTORE_GCODE_STATE NAME=FILAMENT_CHANGE_STATE MOVE=1 MOVE_SPEED=1500
+
+[gcode_macro _ACE_ON_EMPTY_ERROR]
+gcode:
+    {action_respond_info("Spool is empty")}
+    {% if printer.idle_timeout.state == "Printing" %}
+        PAUSE
+    {% endif %}
+
+[gcode_macro ENABLE_FEED_ASSIST]
+gcode:
+    # Проверяем, задан ли слот
+    {% if params.INDEX is defined %}
+        # Сохраняем заданный слот
+        {% set target_index = params.INDEX|int %}
+         # Сообщаем о начале парковки
+        M118 Включена подача филамента слот {target_index}.
+
+        # Запускаем парковку заданного слота
+	    ACE_ENABLE_FEED_ASSIST INDEX={target_index}
+
+    {% else %}
+        # Если слот не задан выдаем ошибку
+        {action_respond_info("Index is lost")}
+        RESPOND TYPE=error MSG="Error INDEX is lost"
+    {% endif %}
+
+
+[gcode_macro DISABLE_FEED_ASSIST]
+gcode:
+    # Проверяем, задан ли слот
+    {% if params.INDEX is defined %}
+        # Сохраняем заданный слот
+        {% set target_index = params.INDEX|int %}
+         # Сообщаем о начале парковки
+        M118 Выключена подача филамента слот {target_index}.
+
+        # Запускаем парковку заданного слота
+	    ACE_DISABLE_FEED_ASSIST INDEX={target_index}
+
+    {% else %}
+        # Если слот не задан выдаем ошибку
+        {action_respond_info("Index is lost")}
+        RESPOND TYPE=error MSG="Error INDEX is lost"
+    {% endif %}
+
+[gcode_macro PARK_TO_TOOLHEAD]
+gcode:
+    # Проверяем, задан ли слот
+    {% if params.INDEX is defined %}
+        # Сохраняем заданный слот
+        {% set target_index = params.INDEX|int %}
+         # Сообщаем о начале парковки
+        M118 Запущена парковка филамента слот {target_index}.
+
+        # Запускаем парковку заданного слота
+	    ACE_PARK_TO_TOOLHEAD INDEX={target_index}
+
+    {% else %}
+        # Если слот не задан выдаем ошибку
+        {action_respond_info("Index is lost")}
+        RESPOND TYPE=error MSG="Error INDEX is lost"
+    {% endif %}
+	
+   
+
+[gcode_macro START_DRYING]
+gcode:
+    # Проверяем, задана ли температура
+    {% if params.TEMP is defined %}
+        # Сохраняем заданную температуру
+        {% set target_temp = params.TEMP|int %}
+    {% else %}
+        # Если температура не задана, используем значение по умолчанию (например, 55 градусов)
+        {% set target_temp = 55 %}
+    {% endif %}
+	# Проверяем, задано ли время
+    {% if params.TIME is defined %}
+        # Сохраняем заданное время в мин.
+        {% set target_time = params.TIME|int %}
+    {% else %}
+        # Если время не задано, используем значение по умолчанию (например, 120 минут)
+        {% set target_time = 120 %}
+    {% endif %}
+	
+    # Сообщаем о начале сушки
+    M117 Запущена сушка филамента температура {target_temp}°C продолжительность {target_time} минут.
+
+    # Запускаем сушку с заданными параметрами
+	ACE_START_DRYING TEMP={target_temp} DURATION={target_time}
+
+[gcode_macro STOP_DRYING]
+gcode: 
+    ACE_STOP_DRYING
+    M117 Сушка филамента остановлена. Вентиляторы продолжат работу до полного остывания нагревателей.
+    
+[gcode_macro TR]
+gcode:
+    ACE_CHANGE_TOOL TOOL=-1
+    
+[gcode_macro T0]
+gcode:
+    ACE_CHANGE_TOOL TOOL=0
+
+[gcode_macro T1]
+gcode:
+    ACE_CHANGE_TOOL TOOL=1
+
+[gcode_macro T2]
+gcode:
+    ACE_CHANGE_TOOL TOOL=2
+
+[gcode_macro T3]
+gcode:
+    ACE_CHANGE_TOOL TOOL=3
+    
