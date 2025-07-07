@@ -170,7 +170,14 @@ gcode:
     {% else %}
         # Если слот не задан выдаем ошибку
         {action_respond_info("Index is lost")}
-        RESPOND TYPE=error MSG="Error INDEX is lost"
+        ACE_DISABLE_FEED_ASSIST INDEX=0
+        G4 P1000
+        ACE_DISABLE_FEED_ASSIST INDEX=1
+        G4 P1000
+        ACE_DISABLE_FEED_ASSIST INDEX=2
+        G4 P1000
+        ACE_DISABLE_FEED_ASSIST INDEX=3
+        G4 P1000
     {% endif %}
 
 [gcode_macro PARK_TO_TOOLHEAD]
@@ -242,4 +249,3 @@ gcode:
 [gcode_macro T3]
 gcode:
     ACE_CHANGE_TOOL TOOL=3
-    
