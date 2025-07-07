@@ -59,6 +59,7 @@ class ValgAce:
         self._park_is_toolchange = False
         self._park_previous_tool = -1
         self._park_index = -1
+        self._toolchange_state = "IDLE"  # IDLE | RETRACTING | PARKING | POST_PROCESSING
 
         # Очереди
         self._queue = queue.Queue(maxsize=self._max_queue_size)
@@ -359,13 +360,17 @@ class ValgAce:
     def _complete_parking(self):
         if not self._park_in_progress:
             return
+    
         print(f"Parking completed for slot {self._park_index}")
         try:
             self.send_request({
                 "method": "stop_feed_assist",
                 "params": {"index": self._park_index}
             }, lambda r: None)
+    
             if self._park_is_toolchange:
+                # ТОЛЬКО здесь вызываем POST-обработчик для смены инструмента
+                self._toolchange_state = "POST_PROCESSING"
                 self.gcode.run_script_from_command(
                     f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}'
                 )
@@ -580,38 +585,41 @@ class ValgAce:
             self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
             return
 
+        self._toolchange_state = "RETRACTING"
         self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
-        self._park_is_toolchange = True
-        self._park_previous_tool = was
         self.toolhead.wait_moves()
-        self.variables['ace_current_index'] = tool
-        self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
 
-        def callback(response):
-            if response.get('code', 0) != 0:
-                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
-        if was != -1:
-            self.send_request({
-                "method": "unwind_filament",
-                "params": {
-                    "index": was,
-                    "length": self.toolchange_retract_length,
-                    "speed": self.retract_speed
-                }
-            }, callback)
-            self.pdwell((self.toolchange_retract_length / self.retract_speed) + 0.1)
-            self.pdwell(1.0)
-            if tool != -1:
-                while self._info['slots'][was]['status'] != 'ready':
-                    self.pdwell(1.0)
-                self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-                self.pdwell(1.0)
+        # Запускаем асинхронную последовательность
+        self.reactor.register_callback(self._toolchange_sequence(was, tool, gcmd))
+
+    async def _toolchange_sequence(self, was, tool, gcmd):
+        try:
+            if was != -1:
+                # 1. Синхронный откат
+                await self._execute_blocking_request({
+                    "method": "unwind_filament",
+                    "params": {"index": was, "length": self.toolchange_retract_length, "speed": self.retract_speed}
+                })
+
+                if tool != -1:
+                    # 2. Запуск парковки (передаём управление в _complete_parking)
+                    self._toolchange_state = "PARKING"
+                    self._park_is_toolchange = True
+                    self._park_previous_tool = was
+                    self._park_to_toolhead(tool)
+                    # Ждём флаг завершения от _complete_parking
+                    while self._toolchange_state != "POST_PROCESSING":
+                        await asyncio.sleep(0.1)
             else:
+                # 3. Если инструмент сбрасывается (-1), сразу POST-обработка
+                self._toolchange_state = "POST_PROCESSING"
                 self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                self.toolhead.wait_moves()
-                gcmd.respond_info(f"Tool changed from {was} to {tool}")
-        else:
-            self._park_to_toolhead(tool)
+
+            gcmd.respond_info(f"Tool changed from {was} to {tool}")
+        except Exception as e:
+            gcmd.respond_error(f"Toolchange failed: {str(e)}")
+        finally:
+            self._toolchange_state = "IDLE"
 
     def _wait_for_slot_ready(self, index, on_ready, event_time):
         if self._info['slots'][index]['status'] == 'ready':
