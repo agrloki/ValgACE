@@ -365,10 +365,10 @@ class ValgAce:
                 "method": "stop_feed_assist",
                 "params": {"index": self._park_index}
             }, lambda r: None)
-            if self._park_is_toolchange:
-                self.gcode.run_script_from_command(
-                    f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}'
-                )
+            # if self._park_is_toolchange:
+            #     self.gcode.run_script_from_command(
+            #         f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}'
+            #     )
         except Exception as e:
             print(f"Parking completion error: {str(e)}")
         finally:
@@ -605,14 +605,24 @@ class ValgAce:
                 while self._info['slots'][was]['status'] != 'ready':
                     self.pdwell(1.0)
                 self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-                self.pdwell(1.0)
+                self.pdwell(20.0)
+                # while self._info['slots'][tool]['status'] != 'ready':
+                #     self.pdwell(1.0)
+                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                self.toolhead.wait_moves()
+                gcmd.respond_info(f"Tool changed from {was} to {tool}")
             else:
                 self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
                 self.toolhead.wait_moves()
                 gcmd.respond_info(f"Tool changed from {was} to {tool}")
         else:
             self._park_to_toolhead(tool)
-
+            self.pdwell(15.0)
+            self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+            self.toolhead.wait_moves()
+            self.variables['ace_current_index'] = tool
+            gcmd.respond_info(f"Tool changed from {was} to {tool}")
+            
     def _wait_for_slot_ready(self, index, on_ready, event_time):
         if self._info['slots'][index]['status'] == 'ready':
             on_ready()
