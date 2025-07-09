@@ -168,7 +168,7 @@ gcode:
 	    ACE_DISABLE_FEED_ASSIST INDEX={target_index}
 
     {% else %}
-        # Если слот не задан выдаем ошибку
+        # Если слот не задан выдаем ошибку и выключаем ассист для всех слотов по очереди
         {action_respond_info("Index is lost")}
         ACE_DISABLE_FEED_ASSIST INDEX=0
         G4 P1000
