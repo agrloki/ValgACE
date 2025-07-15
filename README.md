@@ -1,5 +1,5 @@
 # ValgACE
-
+## Отдельная благодарность @Nefelim4ag ака Timofey Titovets за волшебный пендель в правильном направлении.:))
 ## A driver for Anycubic Color Engine Pro for Klipper
 
 Обсуждение https://t.me/ERCFcrealityACEpro/21334
