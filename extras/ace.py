@@ -38,6 +38,7 @@ class ValgAce:
         # Параметры конфигурации
         self.feed_speed = config.getint('feed_speed', 50)
         self.retract_speed = config.getint('retract_speed', 50)
+        self.retract_mode = config.getint('retract_mode', 0)
         self.toolchange_retract_length = config.getint('toolchange_retract_length', 100)
         self.park_hit_count = config.getint('park_hit_count', 5)
         self.max_dryer_temperature = config.getint('max_dryer_temperature', 55)
@@ -559,12 +560,13 @@ class ValgAce:
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         length = gcmd.get_int('LENGTH', minval=1)
         speed = gcmd.get_int('SPEED', self.retract_speed, minval=1)
+        mode = gcmd.get_int('MODE', self.retract_mode, minval=0, maxval=1)
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
         self.send_request({
             "method": "unwind_filament",
-            "params": {"index": index, "length": length, "speed": speed}
+            "params": {"index": index, "length": length, "speed": speed, "mode": mode}
         }, callback)
         self.pdwell((length / speed) + 0.1)
 
