@@ -84,7 +84,7 @@ The script will perform all necessary actions.
 - ACE_DISABLE_FEED_ASSIST INDEX=0 - 3      Выключить помощь подачи филамента для конкретного порта
 - ACE_PARK_TO_TOOLHEAD INDEX=0 - 3         Припарковать филамент к голове индекс указывает какой порт будет припаркован
 - ACE_FEED INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи>     Подача филамента
-- ACE_RETRACT INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи>  Откат филамента
+- ACE_RETRACT INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи> MODE=<0 (normal mode), 1 (enhanced mode)> Откат филамента
 - ACE_CHANGE_TOOL TOOL=-1 - 0 - 3          Смена инструмента. 
 - ACE_FILAMENT_INFO                        Информация о филаменте если есть rfid метка
 
@@ -106,7 +106,7 @@ The script will perform all necessary actions.
 
 - ACE_FEED INDEX=0-3 LENGTH=<feed_length> SPEED=<feed_speed> - Feed filament
 
-- ACE_RETRACT INDEX=0-3 LENGTH=<retract_length> SPEED=<retract_speed> - Retract filament
+- ACE_RETRACT INDEX=0-3 LENGTH=<retract_length> SPEED=<retract_speed> MODE=<0 (normal mode), 1 (enhanced mode)> - Retract filament
 
 - ACE_CHANGE_TOOL TOOL=-1/0/1/2/3 - Change tool (use -1 for no tool)
 
