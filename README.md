@@ -79,11 +79,12 @@ The script will perform all necessary actions.
 - ACE_STATUS                               Получить статус
 - ACE_START_DRYING TEMP=50 DURATION=120    Сушить 2 часа при 50°C
 - ACE_STOP_DRYING                          Остановить сушку
-- ACE_DEBUG  METHOD=<запрос> (get_status, get_info)  Проверить подключение см. Protocol.md
+- ACE_DEBUG  METHOD=<запрос> (get_status, get_info) PARAMS=<параметры>  Проверить подключение см. Protocol.md
 - ACE_ENABLE_FEED_ASSIST INDEX=0 - 3       Включить помощь подачи филамента для конкретного порта
 - ACE_DISABLE_FEED_ASSIST INDEX=0 - 3      Выключить помощь подачи филамента для конкретного порта
 - ACE_PARK_TO_TOOLHEAD INDEX=0 - 3         Припарковать филамент к голове индекс указывает какой порт будет припаркован
 - ACE_FEED INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи>     Подача филамента
+- ACE_UPDATE_FEEDING_SPEED INDEX=0-3 SPEED=<скорость подачи> - изменить скорость подачи на лету.
 - ACE_RETRACT INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи> MODE=<0 (normal mode), 1 (enhanced mode)> Откат филамента
 - ACE_CHANGE_TOOL TOOL=-1 - 0 - 3          Смена инструмента. 
 - ACE_FILAMENT_INFO                        Информация о филаменте если есть rfid метка
@@ -96,7 +97,7 @@ The script will perform all necessary actions.
 
 - ACE_STOP_DRYING - Stop drying process
 
-- ACE_DEBUG METHOD=<query> (get_status, get_info)- Check connection, see Protocol.md
+- ACE_DEBUG METHOD=<query> (get_status, get_info) PARAMS=<request params>- Check connection, see Protocol.md
 
 - ACE_ENABLE_FEED_ASSIST INDEX=0-3 - Enable filament feed assist for specified port
 
@@ -105,6 +106,8 @@ The script will perform all necessary actions.
 - ACE_PARK_TO_TOOLHEAD INDEX=0-3 - Park filament to toolhead (specify port index)
 
 - ACE_FEED INDEX=0-3 LENGTH=<feed_length> SPEED=<feed_speed> - Feed filament
+
+- ACE_UPDATE_FEEDING_SPEED INDEX=0-3 SPEED=<feed_speed> - Change the feed speed on the fly
 
 - ACE_RETRACT INDEX=0-3 LENGTH=<retract_length> SPEED=<retract_speed> MODE=<0 (normal mode), 1 (enhanced mode)> - Retract filament
 
