@@ -115,6 +115,7 @@ class ValgAce:
             ('ACE_PARK_TO_TOOLHEAD', self.cmd_ACE_PARK_TO_TOOLHEAD, "Park filament to toolhead"),
             ('ACE_FEED', self.cmd_ACE_FEED, "Feed filament"),
             ('ACE_UPDATE_FEEDING_SPEED', self.cmd_ACE_UPDATE_FEEDING_SPEED, "Update feeding speed"),
+            ('ACE_STOP_FEED', self.cmd_ACE_STOP_FEED, "Stop feed filament"),
             ('ACE_RETRACT', self.cmd_ACE_RETRACT, "Retract filament"),
             ('ACE_CHANGE_TOOL', self.cmd_ACE_CHANGE_TOOL, "Change tool"),
             ('ACE_FILAMENT_INFO', self.cmd_ACE_FILAMENT_INFO, "Show filament info"),
@@ -567,6 +568,19 @@ class ValgAce:
             "method": "update_feeding_speed",
             "params": {"index": index, "speed": speed}
         }, callback)
+        self.dwell(0.5, lambda: None)
+
+    def cmd_ACE_STOP_FEED(self, gcmd):
+        index = gcmd.get_int('INDEX', minval=0, maxval=3)
+        def callback(response):
+            if response.get('code', 0) != 0:
+                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
+            else:
+                gcmd.respond_info("Feed stopped")
+        self.send_request({
+            "method": "stop_feed_filament",
+            "params": {"index": index},
+            },callback)
         self.dwell(0.5, lambda: None)
 
     def cmd_ACE_RETRACT(self, gcmd):
