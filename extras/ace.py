@@ -117,6 +117,8 @@ class ValgAce:
             ('ACE_UPDATE_FEEDING_SPEED', self.cmd_ACE_UPDATE_FEEDING_SPEED, "Update feeding speed"),
             ('ACE_STOP_FEED', self.cmd_ACE_STOP_FEED, "Stop feed filament"),
             ('ACE_RETRACT', self.cmd_ACE_RETRACT, "Retract filament"),
+            ('ACE_UPDATE_RETRACT_SPEED', self.cmd_ACE_UPDATE_RETRACT_SPEED, "Update retracting speed"),
+            ('ACE_STOP_RETRACT', self.cmd_ACE_STOP_RETRACT, "Stop retract filament"),
             ('ACE_CHANGE_TOOL', self.cmd_ACE_CHANGE_TOOL, "Change tool"),
             ('ACE_FILAMENT_INFO', self.cmd_ACE_FILAMENT_INFO, "Show filament info"),
         ]
@@ -596,6 +598,31 @@ class ValgAce:
             "params": {"index": index, "length": length, "speed": speed, "mode": mode}
         }, callback)
         self.pdwell((length / speed) + 0.1)
+
+    def cmd_ACE_UPDATE_RETRACT_SPEED(self, gcmd):
+        index = gcmd.get_int('INDEX', minval=0, maxval=3)
+        speed = gcmd.get_int('SPEED', self.feed_speed, minval=1)
+        def callback(response):
+            if response.get('code', 0) != 0:
+                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
+        self.send_request({
+            "method": "update_unwinding_speed",
+            "params": {"index": index, "speed": speed}
+        }, callback)
+        self.dwell(0.5, lambda: None)
+
+    def cmd_ACE_STOP_RETRACT(self, gcmd):
+        index = gcmd.get_int('INDEX', minval=0, maxval=3)
+        def callback(response):
+            if response.get('code', 0) != 0:
+                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
+            else:
+                gcmd.respond_info("Feed stopped")
+        self.send_request({
+            "method": "stop_unwind_filament",
+            "params": {"index": index},
+            },callback)
+        self.dwell(0.5, lambda: None)
 
     def cmd_ACE_CHANGE_TOOL(self, gcmd):
         tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
