@@ -4,6 +4,8 @@
 
 Обсуждение основное: https://t.me/perdoling3d/45834  - здесь обсуждается конкретно данная реализация драйвера, а также различные MMU.
 
+Видео работы: https://youtu.be/hozubbjeEw8
+
 Обсуждение общее: https://t.me/ERCFcrealityACEpro/21334 - здесь можно задать вопросы как по ValgACE так и по BunnyACE
 
 ## Драйвер для Anycubic Color Engine Pro под Klipper, на данный момент статус тестирование.
