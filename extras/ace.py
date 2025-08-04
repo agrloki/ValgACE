@@ -558,7 +558,7 @@ class ValgAce:
             "method": "feed_filament",
             "params": {"index": index, "length": length, "speed": speed}
         }, callback)
-        self.pdwell((length / speed) + 0.1, lambda: None)
+        self.dwell((length / speed) + 0.1, lambda: None)
 
     def cmd_ACE_UPDATE_FEEDING_SPEED(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
