@@ -697,6 +697,10 @@ class ValgAce:
         if was == -1:
             gcmd.respond_info(f"Tool is not set")
             return
+        if infsp_count >= 4:
+            gcmd.respond_info(f"No more ready spoll")
+            return
+        
         self.gcode.run_script_from_command(f"_ACE_PRE_INFINITYSPOOL")
         self.toolhead.wait_moves()
         
@@ -708,6 +712,8 @@ class ValgAce:
                 self.toolhead.wait_moves()
                 self.variables['ace_current_index'] = tool
                 self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
+                self.variables['ace_infsp_counter'] = 2
+                self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_infsp_counter VALUE=2')
                 gcmd.respond_info(f"Tool changed from {was} to {tool}")
         elif infsp_count == 2:
                 tool = infsp_count
@@ -716,7 +722,9 @@ class ValgAce:
                 self.gcode.run_script_from_command(f'__ACE_POST_INFINITYSPOOL')
                 self.toolhead.wait_moves()
                 self.variables['ace_current_index'] = tool
-                self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')                
+                self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
+                self.variables['ace_infsp_counter'] = 3
+                self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_infsp_counter VALUE=3')                                
                 gcmd.respond_info(f"Tool changed from {was} to {tool}")
         elif infsp_count == 3:
                 tool = infsp_count
@@ -725,7 +733,9 @@ class ValgAce:
                 self.gcode.run_script_from_command(f'__ACE_POST_INFINITYSPOOL')
                 self.toolhead.wait_moves()
                 self.variables['ace_current_index'] = tool
-                self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')                
+                self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
+                self.variables['ace_infsp_counter'] = 4
+                self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_infsp_counter VALUE=4')                  
                 gcmd.respond_info(f"Tool changed from {was} to {tool}")
 
 
