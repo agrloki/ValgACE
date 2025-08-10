@@ -121,6 +121,7 @@ class ValgAce:
             ('ACE_UPDATE_RETRACT_SPEED', self.cmd_ACE_UPDATE_RETRACT_SPEED, "Update retracting speed"),
             ('ACE_STOP_RETRACT', self.cmd_ACE_STOP_RETRACT, "Stop retract filament"),
             ('ACE_CHANGE_TOOL', self.cmd_ACE_CHANGE_TOOL, "Change tool"),
+            ('ACE_INFINITY_SPOOL', self.cmd_ACE_INFINITY_SPOOL, "Change tool whel current spool is empty"),
             ('ACE_FILAMENT_INFO', self.cmd_ACE_FILAMENT_INFO, "Show filament info"),
         ]
         for name, func, desc in commands:
@@ -686,6 +687,12 @@ class ValgAce:
             return self.reactor.NEVER
         return event_time + 0.5
 
+    def cmd_ACE_INFINITY_SPOOL(self, gcmd):
+        was = self.variables.get('ace_current_index', -1)
+        
+        if self.infinity_spool_mode != 'True':
+            gcmd.respond_info(f"ACE_INFINITY_SPOOL disabled")
+            return
    
    
 
