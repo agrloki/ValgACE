@@ -698,7 +698,35 @@ class ValgAce:
             gcmd.respond_info(f"Tool is not set")
             return
         self.gcode.run_script_from_command(f"_ACE_PRE_INFINITYSPOOL")
-   
+        self.toolhead.wait_moves()
+        
+        if infsp_count == 1:
+                tool = infsp_count
+                self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+                self.pdwell(15.0)
+                self.gcode.run_script_from_command(f'__ACE_POST_INFINITYSPOOL')
+                self.toolhead.wait_moves()
+                self.variables['ace_current_index'] = tool
+                self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')
+                gcmd.respond_info(f"Tool changed from {was} to {tool}")
+        elif infsp_count == 2:
+                tool = infsp_count
+                self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+                self.pdwell(15.0)
+                self.gcode.run_script_from_command(f'__ACE_POST_INFINITYSPOOL')
+                self.toolhead.wait_moves()
+                self.variables['ace_current_index'] = tool
+                self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')                
+                gcmd.respond_info(f"Tool changed from {was} to {tool}")
+        elif infsp_count == 3:
+                tool = infsp_count
+                self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+                self.pdwell(15.0)
+                self.gcode.run_script_from_command(f'__ACE_POST_INFINITYSPOOL')
+                self.toolhead.wait_moves()
+                self.variables['ace_current_index'] = tool
+                self.gcode.run_script_from_command(f'SAVE_VARIABLE VARIABLE=ace_current_index VALUE={tool}')                
+                gcmd.respond_info(f"Tool changed from {was} to {tool}")
 
 
 def load_config(config):
