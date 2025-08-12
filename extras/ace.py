@@ -43,7 +43,7 @@ class ValgAce:
         self.park_hit_count = config.getint('park_hit_count', 5)
         self.max_dryer_temperature = config.getint('max_dryer_temperature', 55)
         self.disable_assist_after_toolchange = config.getboolean('disable_assist_after_toolchange', True)
-        self.infinity_spool_mode = config.getboolean('infinity_spool_mode', False)
+        self.infinity_spool_mode = config.getboolean ('infinity_spool_mode', False)
 
         # Состояние устройства
         self._info = self._get_default_info()
@@ -692,7 +692,7 @@ class ValgAce:
         infsp_status = self.infinity_spool_mode
         infsp_count = self.variables.get('ace_infsp_counter', 1)
         
-        if infsp_status :
+        if infsp_status != True :
             gcmd.respond_info(f"ACE_INFINITY_SPOOL disabled")
             gcmd.respond_info(f"ACE_INFINITY_SPOOL dstatus {infsp_status}")
             return
