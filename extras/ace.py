@@ -694,7 +694,7 @@ class ValgAce:
         
         if infsp_status != 'True':
             gcmd.respond_info(f"ACE_INFINITY_SPOOL disabled")
-            gcmd.respond_info(f"ACE_INFINITY_SPOOL dstatus {self.infinity_spool_mode}")
+            gcmd.respond_info(f"ACE_INFINITY_SPOOL dstatus {infsp_status}")
             return
         if was == -1:
             gcmd.respond_info(f"Tool is not set")
