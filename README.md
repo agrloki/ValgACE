@@ -64,10 +64,10 @@ Connect them to a regular USB, no dark magic is required.
 ## Installation
 
 - Clone the repository:
-    git clone https://github.com/agrloki/ValgACE.git
+    git clone [https://github.com/agrloki/ValgACE.git](https://github.com/B1gJ1mmy/ValgACE_ENG.git)
 
 - Navigate to the directory:
-    cd ~/ValgACE
+    cd ~/ValgACE_ENG
 
 - Run the installation:
     ./install.sh
