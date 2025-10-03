@@ -24,18 +24,18 @@ class ValgAce:
         self.send_time = 0
         self._last_status_request = 0
 
-        # Параметры таймаутов
+        # Timeout parameters
         self._response_timeout = config.getfloat('response_timeout', 2.0)
         self._read_timeout = config.getfloat('read_timeout', 0.1)
         self._write_timeout = config.getfloat('write_timeout', 0.5)
         self._max_queue_size = config.getint('max_queue_size', 20)
 
-        # Автопоиск устройства
+        # Automatic device detection
         default_serial = self._find_ace_device()
         self.serial_name = config.get('serial', default_serial or '/dev/ttyACM0')
         self.baud = config.getint('baud', 115200)
 
-        # Параметры конфигурации
+        # Configuration parameters
         self.feed_speed = config.getint('feed_speed', 50)
         self.retract_speed = config.getint('retract_speed', 50)
         self.retract_mode = config.getint('retract_mode', 0)
@@ -45,7 +45,7 @@ class ValgAce:
         self.disable_assist_after_toolchange = config.getboolean('disable_assist_after_toolchange', True)
         self.infinity_spool_mode = config.getboolean ('infinity_spool_mode', False)
 
-        # Состояние устройства
+        # Device status
         self._info = self._get_default_info()
         self._callback_map = {}
         self._request_id = 0
@@ -53,7 +53,7 @@ class ValgAce:
         self._connection_attempts = 0
         self._max_connection_attempts = 5
 
-        # Работа
+        # Operation
         self._feed_assist_index = -1
         self._last_assist_count = 0
         self._assist_hit_count = 0
@@ -62,20 +62,20 @@ class ValgAce:
         self._park_previous_tool = -1
         self._park_index = -1
 
-        # Очереди
+        # Queues
         self._queue = queue.Queue(maxsize=self._max_queue_size)
         self._main_queue = queue.Queue()
 
-        # Порты и реактор
+        # Ports and reactor
         self._serial = None
         self._reader_timer = None
         self._writer_timer = None
 
-        # Регистрация событий
+        # Event registration
         self._register_handlers()
         self._register_gcode_commands()
 
-        # Подключение при запуске
+        # Connection at startup
         self.reactor.register_timer(self._connect_check, self.reactor.NOW)
 
     def _get_default_info(self) -> Dict[str, Any]:
@@ -387,7 +387,7 @@ class ValgAce:
                 self._feed_assist_index = -1
 
     def dwell(self, delay: float = 1.0, callback: Optional[Callable] = None):
-        """Асинхронная пауза через reactor"""
+        """Asynchronous pause via reactor"""
         if delay <= 0:
             if callback:
                 self._main_queue.put(callback)
