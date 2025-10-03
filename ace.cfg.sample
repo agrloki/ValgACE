@@ -11,6 +11,7 @@ baud: 115200
 #disable_logging: True
 #log_dir: ~/printer_data/logs
 #Уровни логирования DEBUG - для отладочной информации INFO - для основных событий WARNING - для предупреждений ERROR - для ошибок
+# Logging levels: DEBUG - for debugging info, INFO - for main events, WARNING - for warnings, ERROR - for errors
 #log_level: DEBUG
 # Max log size in Mb
 #max_log_size: 10
@@ -39,7 +40,9 @@ disable_assist_after_toolchange: True
 [gcode_macro _ACE_PRE_TOOLCHANGE]
 gcode:
     # No-op
-    M117 Подготовка к смене филамента
+    # M117 Подготовка к смене филамента
+    # Preparation for filament change
+    M117 Preparation for filament change
     {% set T = 220 %}
     {% if printer.extruder.target != 0 %} # if there is a setpoint for extruder
         {% if printer.extruder.temperature < printer.extruder.target %} # if not reached, heat
@@ -64,15 +67,20 @@ gcode:
         {% set from_index = params.FROM|int %}
         {% if from_index != -1 %}
             # Сохраняем заданный слот
+            # Save the selected slot
             #{% set from_index = params.FROM|int %}
             # Сообщаем о начале парковки
-            M118 Выключена подача филамента слот {from_index}.
+            # Report the start of parking
+            # M118 Выключена подача филамента слот {from_index}.
+            M118 Feed disabled for slot {from_index}
 
             # Запускаем парковку заданного слота
+            # Start parking the selected slot
 	        ACE_DISABLE_FEED_ASSIST INDEX={from_index}
         {% endif %}
     {% else %}
         # Если слот не задан выдаем ошибку
+        # If slot is not specified, report an error
         {action_respond_info("Index is lost")}
         RESPOND TYPE=error MSG="Error INDEX is lost"
     {% endif %}
@@ -91,6 +99,7 @@ gcode:
         G1 X{245} Y{0} F7800    ; parking to knife place 
     {% endif %}       
 #   Перемещаемся в зону очистки
+#   Move to cleaning zone
     G1 X-8 Y0 F7800
     G91
     {% if from_index != -1 %}
@@ -102,8 +111,10 @@ gcode:
 gcode:
     # No-op
     M117 Действия после смены филамента
+    # Actions after filament change
     {% if params.TO is defined %}
         # Сохраняем заданный слот
+        # Save the selected slot
         {% set to_index = params.TO|int %}
         {% if to_index != -1 %}
             G91
@@ -114,6 +125,7 @@ gcode:
         {% endif %}
     {% else %}
         # Если слот не задан выдаем ошибку
+        # If slot is not specified, report an error
         {action_respond_info("Index is lost")}
         RESPOND TYPE=error MSG="Error INDEX is lost"
     {% endif %}
@@ -121,9 +133,12 @@ gcode:
     {% if to_index != -1 %}
 
         # Сообщаем о начале парковки
-        M118 Включена подача филамента слот {to_index}.
+        # Report the start of parking
+        # M118 Включена подача филамента слот {to_index}.
+        M118 Feed enabled for slot {to_index}
 
         # Запускаем парковку заданного слота
+        # Start parking the selected slot
 	    ACE_ENABLE_FEED_ASSIST INDEX={to_index}
     {% endif %}
     
@@ -139,17 +154,23 @@ gcode:
 [gcode_macro ENABLE_FEED_ASSIST]
 gcode:
     # Проверяем, задан ли слот
+    # Check if slot is specified
     {% if params.INDEX is defined %}
         # Сохраняем заданный слот
+        # Save the selected slot
         {% set target_index = params.INDEX|int %}
          # Сообщаем о начале парковки
-        M118 Включена подача филамента слот {target_index}.
+         # Report the start of parking
+        # M118 Включена подача филамента слот {target_index}.
+        M118 Feed enabled for slot {target_index}
 
         # Запускаем парковку заданного слота
+        # Start parking the selected slot
 	    ACE_ENABLE_FEED_ASSIST INDEX={target_index}
 
     {% else %}
         # Если слот не задан выдаем ошибку
+        # If slot is not specified, report an error
         {action_respond_info("Index is lost")}
         RESPOND TYPE=error MSG="Error INDEX is lost"
     {% endif %}
@@ -158,17 +179,22 @@ gcode:
 [gcode_macro DISABLE_FEED_ASSIST]
 gcode:
     # Проверяем, задан ли слот
+    # Check if slot is specified
     {% if params.INDEX is defined %}
         # Сохраняем заданный слот
+        # Save the selected slot
         {% set target_index = params.INDEX|int %}
          # Сообщаем о начале парковки
+         # Report the start of parking
         M118 Выключена подача филамента слот {target_index}.
 
         # Запускаем парковку заданного слота
+        # Start parking the selected slot
 	    ACE_DISABLE_FEED_ASSIST INDEX={target_index}
 
     {% else %}
         # Если слот не задан выдаем ошибку и выключаем ассист для всех слотов по очереди
+        # If slot is not specified, report an error and disable assist for all slots in sequence
         {action_respond_info("Index is lost")}
         ACE_DISABLE_FEED_ASSIST INDEX=0
         G4 P1000
@@ -183,17 +209,23 @@ gcode:
 [gcode_macro PARK_TO_TOOLHEAD]
 gcode:
     # Проверяем, задан ли слот
+    # Check if slot is specified
     {% if params.INDEX is defined %}
         # Сохраняем заданный слот
+        # Save the selected slot
         {% set target_index = params.INDEX|int %}
          # Сообщаем о начале парковки
-        M118 Запущена парковка филамента слот {target_index}.
+         # Report the start of parking
+        # M118 Запущена парковка филамента слот {target_index}.
+        M118 Started parking filament for slot {target_index}
 
         # Запускаем парковку заданного слота
+        # Start parking the selected slot
 	    ACE_PARK_TO_TOOLHEAD INDEX={target_index}
 
     {% else %}
         # Если слот не задан выдаем ошибку
+        # If slot is not specified, report an error
         {action_respond_info("Index is lost")}
         RESPOND TYPE=error MSG="Error INDEX is lost"
     {% endif %}
@@ -208,27 +240,33 @@ gcode:
         {% set target_temp = params.TEMP|int %}
     {% else %}
         # Если температура не задана, используем значение по умолчанию (например, 55 градусов)
+        # If temperature is not specified, use default value (e.g., 55 degrees)
         {% set target_temp = 55 %}
     {% endif %}
 	# Проверяем, задано ли время
+	# Check if time is specified
     {% if params.TIME is defined %}
         # Сохраняем заданное время в мин.
         {% set target_time = params.TIME|int %}
     {% else %}
         # Если время не задано, используем значение по умолчанию (например, 120 минут)
+        # If time is not specified, use default value (e.g., 120 minutes)
         {% set target_time = 120 %}
     {% endif %}
 	
     # Сообщаем о начале сушки
+    # Report the start of drying
     M117 Запущена сушка филамента температура {target_temp}°C продолжительность {target_time} минут.
 
     # Запускаем сушку с заданными параметрами
+    # Start drying with specified parameters
 	ACE_START_DRYING TEMP={target_temp} DURATION={target_time}
 
 [gcode_macro STOP_DRYING]
 gcode: 
     ACE_STOP_DRYING
-    M117 Сушка филамента остановлена. Вентиляторы продолжат работу до полного остывания нагревателей.
+    # M117 Сушка филамента остановлена. Вентиляторы продолжат работу до полного остывания нагревателей.
+    M117 Filament drying stopped. Fans will continue to run until heaters are fully cooled.
     
 [gcode_macro TR]
 gcode:

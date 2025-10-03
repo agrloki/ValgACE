@@ -32,6 +32,8 @@ and https://github.com/BlackFrogKok/BunnyACE
 Информация RFID доступна только для маркированных нитей
 
 ## English
+## The file ace.cfg contains messages in English. However, since the default language is Russian, they are commented out. Please uncomment them if needed.
+
 
 The core functionality works, and it operates stably on a clean Klipper installation. On customized versions from printer manufacturers, the stability may vary.
 
