@@ -111,12 +111,21 @@ ACE_DEBUG METHOD=get_info
 
 Полная документация доступна в папке `docs/`:
 
+**Русская документация:**
 - **[Установка](docs/INSTALLATION.md)** - подробное руководство по установке
 - **[Руководство пользователя](docs/USER_GUIDE.md)** - как использовать ValgACE
 - **[Справочник команд](docs/COMMANDS.md)** - все доступные команды G-code
 - **[Конфигурация](docs/CONFIGURATION.md)** - настройка параметров
 - **[Решение проблем](docs/TROUBLESHOOTING.md)** - типичные проблемы и решения
 - **[Протокол](docs/Protocol.md)** - техническая документация протокола
+
+**English Documentation:**
+- **[Installation](docs/en/INSTALLATION.md)** - detailed installation guide
+- **[User Guide](docs/en/USER_GUIDE.md)** - how to use ValgACE
+- **[Commands Reference](docs/en/COMMANDS.md)** - all available G-code commands
+- **[Configuration](docs/en/CONFIGURATION.md)** - parameter configuration
+- **[Troubleshooting](docs/en/TROUBLESHOOTING.md)** - common issues and solutions
+- **[Protocol](docs/Protocol.md)** - technical protocol documentation (English)
 
 ## Основные команды
 
