@@ -782,8 +782,25 @@ class ValgAce:
                     self.toolhead.wait_moves()
                 gcmd.respond_info(f"Tool changed from {was} to {tool}")
             
-            # Wait 15 seconds for parking to complete
-            self.dwell(15.0, after_park_delay)
+            # Monitor parking completion instead of fixed timeout
+            def check_parking_completion(eventtime):
+                # Check if parking failed
+                if self._park_error:
+                    self.logger.error(f"Parking failed for slot {tool} during toolchange")
+                    gcmd.respond_raw(f"ACE Error: Parking failed for slot {tool}")
+                    return self.reactor.NEVER
+                
+                # Check if parking completed (changed from True to False)
+                if not self._park_in_progress:
+                    self.logger.info(f"Parking completed for slot {tool}, executing post-toolchange")
+                    after_park_delay()
+                    return self.reactor.NEVER
+                
+                # Continue checking every 0.5 seconds
+                return eventtime + 0.5
+            
+            # Start monitoring parking completion
+            self.reactor.register_timer(check_parking_completion, self.reactor.monotonic() + 0.5)
 
     def _wait_for_slot_ready_async(self, index, on_ready, event_time):
         """Asynchronous waiting for slot to be ready"""
