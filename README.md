@@ -1,153 +1,155 @@
-# ValgACE
-## Отдельная благодарность @Nefelim4ag ака Timofey Titovets за волшебный пендель в правильном направлении.:))
-## A driver for Anycubic Color Engine Pro for Klipper
+# ValgACE - Драйвер для Anycubic Color Engine Pro
 
-Обсуждение основное: https://t.me/perdoling3d/45834  - здесь обсуждается конкретно данная реализация драйвера, а также различные MMU.
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-Видео работы: https://youtu.be/hozubbjeEw8
+**ValgACE** - модуль для Klipper, обеспечивающий полное управление устройством автоматической смены филамента Anycubic Color Engine Pro (ACE Pro).
 
-Обсуждение общее: https://t.me/ERCFcrealityACEpro/21334 - здесь можно задать вопросы как по ValgACE так и по BunnyACE
+## 📋 Содержание
 
-## Драйвер для Anycubic Color Engine Pro под Klipper, на данный момент статус тестирование.
+- [Описание](#описание)
+- [Возможности](#возможности)
+- [Системные требования](#системные-требования)
+- [Быстрый старт](#быстрый-старт)
+- [Документация](#документация)
+- [Поддержка](#поддержка)
+- [Благодарности](#благодарности)
 
-Based on https://github.com/utkabobr/DuckACE
-and https://github.com/BlackFrogKok/BunnyACE
+## Описание
 
-Основной функционал работает, на чистом клиппере работает стабильно, на кастомизированных версиях от производителей принтеров - как повезет.
+ValgACE представляет собой полнофункциональный драйвер для управления устройством Anycubic Color Engine Pro через Klipper. Драйвер обеспечивает автоматическую смену филамента между 4 слотами, управление сушкой, подачу и откат филамента, а также поддержку RFID меток.
 
-На данный момент подтверждена работа на принтерах  Creality К1.
+### Статус проекта
 
-Драйвер обеспечивает основной функционал Anycubic Color Engine Pro без привязки к конкретной конструкции принтера, все процессы до и после смены филамента задаются 
+**Статус:** В стадии тестирования  
+**Подтверждено на:** Creality K1, Kingroon KLP1, Kingroon KP3S Pro V2, custom klipper 3d printers.
+**Основан на:** [DuckACE](https://github.com/utkabobr/DuckACE) и [BunnyACE](https://github.com/BlackFrogKok/BunnyACE)
 
-макросами в ace.cfg и в настройках слайсеров.
+## Возможности
 
-Ключевые моменты:
+✅ **Управление филаментом**
+- Автоматическая смена инструмента (4 слота)
+- Подача и откат филамента с настраиваемой скоростью
+- Автоматическая парковка филамента к соплу
+- Режим бесконечной катушки (infinity spool)
 
-Все индексы (порты) изменяются от 0 до 3
+✅ **Управление сушкой**
+- Программируемая сушка филамента
+- Контроль температуры и времени
+- Автоматическое управление вентиляторами
 
-Для выбора инструмента допустимые значения от -1 (выгрузить пластик из хотенда) до 3
+✅ **Информационные функции**
+- Мониторинг состояния устройства
+- Информация о филаменте (RFID)
+- Отладочные команды
 
-Команды подачи/отката требуют параметров длины и скорости
+✅ **Интеграция с Klipper**
+- Полная поддержка макросов G-code
+- Асинхронная обработка команд
+- Совместимость с существующими конфигурациями
 
-Информация RFID доступна только для маркированных нитей
+## Системные требования
 
-## English
-## The file ace.cfg contains messages in English. However, since the default language is Russian, they are commented out. Please uncomment them if needed.
+- **Klipper** - свежая установка (рекомендуется)
+- **Python 3** - для работы модуля
+- **pyserial** - библиотека для работы с последовательным портом
+- **USB-соединение** - для подключения к ACE Pro
 
+### Поддерживаемые принтеры
 
-The core functionality works, and it operates stably on a clean Klipper installation. On customized versions from printer manufacturers, the stability may vary.
+- ✅ Creality K1 / K1 Max
+- ⚠️ Другие принтеры с Klipper (требует тестирования)
 
-As of now, its operation has been confirmed on Creality K1 printers.
+## Быстрый старт
 
-The driver provides the main functionality of the Anycubic Color Engine Pro without being tied to a specific printer design; all processes before and after filament 
+### 1. Установка
 
-changes are defined by macros in ace.cfg and slicer settings.
+```bash
+# Клонируем репозиторий
+git clone https://github.com/agrloki/ValgACE.git
+cd ValgACE
 
-## Pinout
+# Запускаем установку
+./install.sh
+```
 
-![Molex](/.github/img/molex.png)
+### 2. Настройка
 
-- 1 - None (VCC, not required to work, ACE provides it's own power)
-- 2 - Ground
-- 3 - D-
-- 4 - D+
+Добавьте в `printer.cfg`:
 
-Connect them to a regular USB, no dark magic is required.
+```ini
+[include ace.cfg]
+```
 
-## Установка
+### 3. Проверка подключения
 
-- Клонируем репо: git clone https://github.com/agrloki/ValgACE.git
-- Заходим в каталог: cd ~/ValgACE
-- Запускаем установку: ./install.sh
-- В файл printer.cfg добавляем: [include ace.cfg]
+```gcode
+ACE_STATUS
+ACE_DEBUG METHOD=get_info
+```
 
-Скрипт выполнит все необходимые действия. 
+## Документация
 
-## Installation
+Полная документация доступна в папке `docs/`:
 
-- Clone the repository:
-    git clone https://github.com/agrloki/ValgACE.git
+- **[Установка](docs/INSTALLATION.md)** - подробное руководство по установке
+- **[Руководство пользователя](docs/USER_GUIDE.md)** - как использовать ValgACE
+- **[Справочник команд](docs/COMMANDS.md)** - все доступные команды G-code
+- **[Конфигурация](docs/CONFIGURATION.md)** - настройка параметров
+- **[Решение проблем](docs/TROUBLESHOOTING.md)** - типичные проблемы и решения
+- **[Протокол](docs/Protocol.md)** - техническая документация протокола
 
-- Navigate to the directory:
-    cd ~/ValgACE
+## Основные команды
 
-- Run the installation:
-    ./install.sh
+```gcode
+# Получить статус устройства
+ACE_STATUS
 
-- Add this include statement to printer.cfg:
-     [include ace.cfg]
+# Смена инструмента
+ACE_CHANGE_TOOL TOOL=0    # Загрузить слот 0
+ACE_CHANGE_TOOL TOOL=-1   # Выгрузить филамент
 
-The script will perform all necessary actions. 
+# Парковка филамента
+ACE_PARK_TO_TOOLHEAD INDEX=0
 
-## Доступные команды:
-- ACE_STATUS                               Получить статус
+# Управление подачей
+ACE_FEED INDEX=0 LENGTH=50 SPEED=25
+ACE_RETRACT INDEX=0 LENGTH=50 SPEED=25
 
-- ACE_START_DRYING TEMP=50 DURATION=120    Сушить 2 часа при 50°C
+# Сушка филамента
+ACE_START_DRYING TEMP=50 DURATION=120
+ACE_STOP_DRYING
+```
 
-- ACE_STOP_DRYING                          Остановить сушку
+Полный список команд см. в [Справочнике команд](docs/COMMANDS.md).
 
-- ACE_DEBUG  METHOD=<запрос> (get_status, get_info) PARAMS=<параметры>  Проверить подключение см. Protocol.md
+## Поддержка
 
-- ACE_ENABLE_FEED_ASSIST INDEX=0 - 3       Включить помощь подачи филамента для конкретного порта
+### Обсуждения
 
-- ACE_DISABLE_FEED_ASSIST INDEX=0 - 3      Выключить помощь подачи филамента для конкретного порта
+- **Основное обсуждение:** [Telegram - perdoling3d](https://t.me/perdoling3d/45834)
+- **Общее обсуждение:** [Telegram - ERCFcrealityACEpro](https://t.me/ERCFcrealityACEpro/21334)
 
-- ACE_PARK_TO_TOOLHEAD INDEX=0 - 3         Припарковать филамент к голове индекс указывает какой порт будет припаркован
+### Видео
 
-- ACE_FEED INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи>     Подача филамента
+- [Демонстрация работы](https://youtu.be/hozubbjeEw8)
 
-- ACE_UPDATE_FEEDING_SPEED INDEX=0-3 SPEED=<скорость подачи> - изменить скорость подачи на лету.
+### GitHub
 
-- ACE_STOP_FEED INDEX=0-3                   Остановить подачу филамента      
+- **Репозиторий:** https://github.com/agrloki/ValgACE
+- **Issues:** Используйте GitHub Issues для сообщений об ошибках
 
-- ACE_RETRACT INDEX=0-3 LENGTH=<длина подачи> SPEED=<Скорость подачи> MODE=<0 (normal mode), 1 (enhanced mode)> Откат филамента
+## Благодарности
 
-- ACE_UPDATE_RETRACT_SPEED INDEX=0-3 SPEED=<скорость подачи> - изменить скорость отката на лету.
+Отдельная благодарность **@Nefelim4ag** (Timofey Titovets) за помощь в разработке и направление в правильном направлении. 🙂
 
-- ACE_STOP_RETRACT INDEX=0-3                   Остановить откат филамента
+Проект основан на:
+- [DuckACE](https://github.com/utkabobr/DuckACE) от utkabobr
+- [BunnyACE](https://github.com/BlackFrogKok/BunnyACE) от BlackFrogKok
 
-- ACE_CHANGE_TOOL TOOL=-1 - 0 - 3          Смена инструмента. 
+## Лицензия
 
-- ACE_FILAMENT_INFO                        Информация о филаменте если есть rfid метка
+Проект распространяется под лицензией [GNU GPL v3](LICENSE.md).
 
-## Available Commands:
+---
 
-- ACE_STATUS - Get device status
-
-- ACE_START_DRYING TEMP=50 DURATION=120 - Dry filament for 2 hours at 50°C
-
-- ACE_STOP_DRYING - Stop drying process
-
-- ACE_DEBUG METHOD=<query> (get_status, get_info) PARAMS=<request params>- Check connection, see Protocol.md
-
-- ACE_ENABLE_FEED_ASSIST INDEX=0-3 - Enable filament feed assist for specified port
-
-- ACE_DISABLE_FEED_ASSIST INDEX=0-3 - Disable filament feed assist for specified port
-
-- ACE_PARK_TO_TOOLHEAD INDEX=0-3 - Park filament to toolhead (specify port index)
-
-- ACE_FEED INDEX=0-3 LENGTH=<feed_length> SPEED=<feed_speed> - Feed filament
-
-- ACE_UPDATE_FEEDING_SPEED INDEX=0-3 SPEED=<feed_speed> - Change the feed speed on the fly
-
-- ACE_STOP_FEED INDEX=0-3  - Stop feed filament
-
-- ACE_RETRACT INDEX=0-3 LENGTH=<retract_length> SPEED=<retract_speed> MODE=<0 (normal mode), 1 (enhanced mode)> - Retract filament
-
-- ACE_UPDATE_RETRACT_SPEED INDEX=0-3 SPEED=<скорость подачи> - Change the retract speed on the fly
-
-- ACE_STOP_RETRACT INDEX=0-3  - Stop retract filament
-
-- ACE_CHANGE_TOOL TOOL=-1/0/1/2/3 - Change tool (use -1 for no tool)
-
-- ACE_FILAMENT_INFO - Show filament information (if RFID tag is present)
-
-Key notes:
-
-All indexes (ports) range from 0 to 3
-
-Tool selection accepts values from -1 (no tool) to 3
-
-Feed/retract commands require length and speed parameters
-
-RFID information is only available for tagged filaments
+**Внимание:** Драйвер находится в стадии тестирования. На чистом Klipper работает стабильно, на кастомизированных версиях от производителей стабильность может варьироваться.
