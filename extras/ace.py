@@ -773,7 +773,9 @@ class ValgAce:
         else:
             # Use G-code command for consistency
             self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-            
+            if self.toolhead:
+                self.toolhead.wait_moves()
+           
             def after_park_delay():
                 self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
                 if self.toolhead:
@@ -830,7 +832,9 @@ class ValgAce:
             # Park new tool using G-code command (like in working version)
             self.logger.info(f"Starting parking of new tool {tool} using G-code command")
             self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-            
+            if self.toolhead:
+                self.toolhead.wait_moves()
+                    
             def after_park_delay():
                 self.logger.info(f"Parking delay complete for slot {tool}, executing post-toolchange")
                 self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
@@ -914,7 +918,9 @@ class ValgAce:
         
         # Start parking via G-code command
         self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
-        
+        if self.toolhead:
+            self.toolhead.wait_moves()
+            
         # Monitor parking with timeout
         max_wait_time = 30.0
         start_time = self.reactor.monotonic()
