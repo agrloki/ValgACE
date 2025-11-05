@@ -859,8 +859,25 @@ class ValgAce:
                     self.toolhead.wait_moves()
                 gcmd.respond_info(f"Tool changed from {was} to {tool}")
             
-            # Wait 10 seconds for parking to complete (like in working version)
-            self.dwell(10.0, after_park_delay)
+            # Monitor parking completion instead of fixed timeout
+            def check_parking_completion(eventtime):
+                # Check if parking failed
+                if self._park_error:
+                    self.logger.error(f"Parking failed for slot {tool} during toolchange callback")
+                    gcmd.respond_raw(f"ACE Error: Parking failed for slot {tool}")
+                    return self.reactor.NEVER
+                
+                # Check if parking completed (changed from True to False)
+                if not self._park_in_progress:
+                    self.logger.info(f"Parking completed for slot {tool}, executing post-toolchange")
+                    after_park_delay()
+                    return self.reactor.NEVER
+                
+                # Continue checking every 0.5 seconds
+                return eventtime + 0.5
+            
+            # Start monitoring parking completion
+            self.reactor.register_timer(check_parking_completion, self.reactor.monotonic() + 0.5)
 
     def cmd_ACE_INFINITY_SPOOL(self, gcmd):
         was = self.variables.get('ace_current_index', -1)
