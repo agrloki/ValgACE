@@ -815,55 +815,6 @@ class ValgAce:
             return eventtime + 1.0
         self.reactor.register_timer(check_status_timer, event_time + 1.0)
 
-    def _start_initial_toolchange_timer(self, tool, was, gcmd):
-        """Timer for initial tool change (when was == -1)"""
-        def timer_handler(eventtime):
-            # Wait for parking to complete (parking sets _park_in_progress to False when done)
-            if not self._park_in_progress:
-                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                if self.toolhead:
-                    self.toolhead.wait_moves()
-                self._save_variable('ace_current_index', tool)
-                gcmd.respond_info(f"Tool changed from {was} to {tool}")
-                return self.reactor.NEVER  # Stop timer
-            # Continue checking every second
-            return eventtime + 1.0
-        self.reactor.register_timer(timer_handler, self.reactor.monotonic() + 1.0)
-
-    def _wait_for_park_completion_async(self, tool, was, gcmd):
-        """Asynchronous waiting for park to complete"""
-        start_time = self.reactor.monotonic()
-        max_wait_time = 30.0  # Maximum 30 seconds to wait
-        
-        def timer_handler(eventtime):
-            # Check if parking failed
-            if self._park_error:
-                self.logger.error(f"Parking failed for slot {tool}, aborting toolchange")
-                gcmd.respond_raw(f"ACE Error: Feed assist for slot {tool} not working")
-                self._park_error = False
-                return self.reactor.NEVER
-            
-            if not self._park_in_progress:
-                self.logger.info(f"Parking completed for slot {tool}, executing post-toolchange")
-                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                if self.toolhead:
-                    self.toolhead.wait_moves()
-                gcmd.respond_info(f"Tool changed from {was} to {tool}")
-                return self.reactor.NEVER
-            
-            # Timeout check
-            elapsed = eventtime - start_time
-            if elapsed > max_wait_time:
-                self.logger.error(f"Parking timeout for slot {tool} after {elapsed:.1f}s")
-                self._park_in_progress = False
-                self._park_error = True
-                gcmd.respond_raw(f"Parking timeout for slot {tool}")
-                return self.reactor.NEVER
-            
-            # Continue checking
-            return eventtime + 0.5
-        self.reactor.register_timer(timer_handler, self.reactor.monotonic() + 0.5)
-
     def _on_slot_ready_callback(self, tool, was, gcmd):
         """Callback when slot is ready after retraction"""
         self.logger.info(f"Slot ready callback: tool={tool}, was={was}")
@@ -889,12 +840,6 @@ class ValgAce:
             
             # Wait 10 seconds for parking to complete (like in working version)
             self.dwell(10.0, after_park_delay)
-            
-    def _wait_for_slot_ready(self, index, on_ready, event_time):
-        if self._info['slots'][index]['status'] == 'ready':
-            on_ready()
-            return self.reactor.NEVER
-        return event_time + 0.5
 
     def cmd_ACE_INFINITY_SPOOL(self, gcmd):
         was = self.variables.get('ace_current_index', -1)
