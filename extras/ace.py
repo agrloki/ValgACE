@@ -710,28 +710,8 @@ class ValgAce:
             if params.strip():
                 request["params"] = json.loads(params)
             def callback(response):
-                if 'result' in response:
-                    result = response['result']
-                    output = []
-                    if method == "get_info":
-                        output.append("=== Device Info ===")
-                        output.append(f"Model: {result.get('model', 'Unknown')}")
-                        output.append(f"Firmware: {result.get('firmware', 'Unknown')}")
-                        output.append(f"Hardware: {result.get('hardware', 'Unknown')}")
-                        output.append(f"Serial: {result.get('serial', 'Unknown')}")
-                    else:
-                        output.append("=== Status ===")
-                        output.append(f"State: {result.get('status', 'Unknown')}")
-                        output.append(f"Temperature: {result.get('temp', 'Unknown')}")
-                        output.append(f"Fan Speed: {result.get('fan_speed', 'Unknown')}")
-                        for slot in result.get('slots', []):
-                            output.append(f"\nSlot {slot.get('index', '?')}:")
-                            output.append(f"  Status: {slot.get('status', 'Unknown')}")
-                            output.append(f"  Type: {slot.get('type', 'Unknown')}")
-                            output.append(f"  Color: {slot.get('color', 'Unknown')}")
-                    gcmd.respond_info("\n".join(output))
-                else:
-                    gcmd.respond_info(json.dumps(response, indent=2))
+                # Выводим сырой JSON ответ без форматирования
+                gcmd.respond_info(json.dumps(response, indent=2))
         except Exception as e:
             self.logger.info(f"Debug command error: {str(e)}")
             gcmd.respond_raw(f"Error: {str(e)}")
