@@ -184,20 +184,37 @@ curl -X POST http://localhost:7125/server/ace/command \
 Подробная документация по REST API: [Moonraker API](docs/MOONRAKER_API.md)
 
 ## Веб-интерфейс
+![Web](/.github/img/valgace-web.png)
 
 Готовый веб-интерфейс для управления ACE доступен в `docs/examples/`:
 
 - **[ValgACE Dashboard](docs/examples/README.md)** - полнофункциональный веб-интерфейс с Vue.js
 - Отображение статуса устройства в реальном времени
-- Управление слотами филамента
+- Управление слотами филамента (загрузка, парковка, feed assist, подача, откат)
 - Управление сушкой
-- Подача и откат филамента
 - WebSocket подключение для обновлений в реальном времени
+
+### Быстрая установка Dashboard
+
+```bash
+# Скопируйте файлы
+mkdir -p ~/ace-dashboard
+cp ~/ValgACE/docs/examples/ace-dashboard.* ~/ace-dashboard/
+
+# Запустите HTTP сервер
+cd ~/ace-dashboard
+python3 -m http.server 8080
+```
+
+Откройте в браузере: `http://<IP-принтера>:8080/ace-dashboard.html`
+
+**Для постоянного использования рекомендуется установка через nginx** — см. [инструкции по установке](docs/INSTALLATION.md#2-установка-веб-интерфейса-valgace-dashboard) и [пример конфигурации nginx](docs/examples/nginx.conf.example).
 
 Файлы:
 - `ace-dashboard.html` - основной интерфейс
 - `ace-dashboard.css` - стили
 - `ace-dashboard.js` - логика работы с API
+- `ace-dashboard-config.js` - конфигурация адреса Moonraker
 
 ## Поддержка
 

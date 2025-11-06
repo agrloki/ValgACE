@@ -231,7 +231,125 @@ curl -X POST http://<HOST>:7125/server/ace/command \
   -d '{"command":"ACE_PARK_TO_TOOLHEAD","params":{"INDEX":0}}'
 ```
 
-### 2) Автоматические обновления (update_manager)
+### 2) Установка веб-интерфейса ValgACE Dashboard
+
+ValgACE Dashboard — это готовый веб-интерфейс для управления ACE через браузер. Он предоставляет удобный графический интерфейс для всех операций управления устройством.
+
+#### Вариант A: Простой HTTP сервер (для тестирования)
+
+1. Скопируйте файлы dashboard:
+   ```bash
+   mkdir -p ~/ace-dashboard
+   cp ~/ValgACE/docs/examples/ace-dashboard.* ~/ace-dashboard/
+   ```
+
+2. Запустите простой HTTP сервер:
+   ```bash
+   cd ~/ace-dashboard
+   python3 -m http.server 8080
+   ```
+
+3. Откройте в браузере: `http://<IP-адрес-принтера>:8080/ace-dashboard.html`
+
+**Примечание:** Этот вариант подходит для тестирования. Для постоянного использования рекомендуется установка через nginx.
+
+#### Вариант B: Nginx (рекомендуется для постоянного использования)
+
+1. **Скопируйте файлы в директорию веб-сервера:**
+   ```bash
+   sudo mkdir -p /var/www/ace-dashboard
+   sudo cp ~/ValgACE/docs/examples/ace-dashboard.* /var/www/ace-dashboard/
+   sudo chown -R www-data:www-data /var/www/ace-dashboard
+   ```
+
+2. **Создайте конфигурацию nginx:**
+   ```bash
+   sudo nano /etc/nginx/sites-available/ace-dashboard
+   ```
+
+3. **Используйте пример конфигурации:**
+   ```bash
+   # Скопируйте пример
+   sudo cp ~/ValgACE/docs/examples/nginx.conf.example /etc/nginx/sites-available/ace-dashboard
+   
+   # Отредактируйте конфигурацию
+   sudo nano /etc/nginx/sites-available/ace-dashboard
+   ```
+   
+   В конфигурации укажите:
+   - `server_name` — ваш домен или IP адрес
+   - `root` — путь к файлам (`/var/www/ace-dashboard`)
+
+4. **Активируйте конфигурацию:**
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/ace-dashboard /etc/nginx/sites-enabled/
+   sudo nginx -t  # Проверка синтаксиса
+   sudo systemctl reload nginx
+   ```
+
+5. **Откройте в браузере:**
+   ```
+   http://<ваш-домен-или-IP>/ace-dashboard.html
+   ```
+
+#### Настройка адреса Moonraker
+
+Если Moonraker находится на другом хосте или порту, отредактируйте `ace-dashboard-config.js`:
+
+```bash
+nano ~/ace-dashboard/ace-dashboard-config.js
+```
+
+Измените:
+```javascript
+const ACE_DASHBOARD_CONFIG = {
+    // Укажите адрес Moonraker API
+    apiBase: 'http://192.168.1.100:7125',  // Замените на ваш IP
+    
+    // Остальные настройки...
+};
+```
+
+#### Проверка установки Dashboard
+
+1. **Проверьте доступность файлов:**
+   ```bash
+   ls -la ~/ace-dashboard/ace-dashboard.*
+   # или
+   ls -la /var/www/ace-dashboard/ace-dashboard.*
+   ```
+
+2. **Проверьте доступность через браузер:**
+   - Откройте `http://<IP>:8080/ace-dashboard.html` (для HTTP сервера)
+   - Или `http://<домен>/ace-dashboard.html` (для nginx)
+
+3. **Проверьте подключение:**
+   - Индикатор подключения должен быть зеленым
+   - Статус устройства должен загрузиться
+
+#### Дополнительные настройки
+
+**Включение отладки:**
+Отредактируйте `ace-dashboard-config.js`:
+```javascript
+debug: true,  // Включить отладочные сообщения в консоль
+```
+
+**Настройка значений по умолчанию:**
+```javascript
+defaults: {
+    feedLength: 50,      // Длина подачи по умолчанию (мм)
+    feedSpeed: 25,       // Скорость подачи по умолчанию (мм/с)
+    retractLength: 50,   // Длина отката по умолчанию (мм)
+    retractSpeed: 25,    // Скорость отката по умолчанию (мм/с)
+    dryingTemp: 50,      // Температура сушки по умолчанию (°C)
+    dryingDuration: 240  // Длительность сушки по умолчанию (мин)
+}
+```
+
+Подробнее см. [README веб-интерфейса](examples/README.md) и [пример конфигурации nginx](examples/nginx.conf.example).
+
+### 3) Автоматические обновления (update_manager)
 
 Для автоматических обновлений добавьте в `moonraker.conf`:
 
@@ -382,7 +500,8 @@ pip3 install pyserial
 1. ✅ Прочитайте [Руководство пользователя](USER_GUIDE.md)
 2. ✅ Изучите [Справочник команд](COMMANDS.md)
 3. ✅ Настройте параметры в [Конфигурации](CONFIGURATION.md)
-4. ✅ Протестируйте базовые команды
+4. ✅ Установите [веб-интерфейс Dashboard](examples/README.md) для удобного управления
+5. ✅ Протестируйте базовые команды
 
 ---
 
