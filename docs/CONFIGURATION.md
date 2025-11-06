@@ -286,12 +286,21 @@ infinity_spool_mode: True
 ```
 
 **Требования:**
-- Минимум два слота должны быть готовы (`ready`)
-- Используется счетчик `ace_infsp_counter` для отслеживания слотов
+- Порядок слотов должен быть установлен через `ACE_SET_INFINITY_SPOOL_ORDER`
+- Минимум один слот в порядке должен быть готов (`ready`)
 
-**Сброс счетчика:**
+**Использование:**
+1. Включите режим в конфигурации: `infinity_spool_mode: True`
+2. Установите порядок слотов: `ACE_SET_INFINITY_SPOOL_ORDER ORDER="0,1,2,3"`
+3. Используйте `ACE_INFINITY_SPOOL` при окончании филамента
+
+**Переменные:**
+- `ace_infsp_order` - порядок слотов (строка, например: `"0,1,none,3"`)
+- `ace_infsp_position` - текущая позиция в порядке (0-3)
+
+**Сброс позиции:**
 ```gcode
-_ACE_RESET_INFINITYSPOOL
+RESET_INFINITY_SPOOL
 ```
 
 ---
@@ -469,19 +478,45 @@ gcode:
 
 Выполняется перед сменой катушки в режиме infinity spool.
 
+**Параметры:** Нет
+
+**Использование:** Настраивается в `ace.cfg` под вашу конфигурацию принтера.
+
 #### `_ACE_POST_INFINITYSPOOL`
 
 Выполняется после смены катушки в режиме infinity spool.
 
-#### `_ACE_RESET_INFINITYSPOOL`
+**Параметры:** Нет
 
-Сброс счетчика infinity spool.
+**Использование:** Настраивается в `ace.cfg` под вашу конфигурацию принтера.
+
+#### `SET_INFINITY_SPOOL_ORDER`
+
+Удобный макрос для установки порядка слотов infinity spool.
+
+**Параметры:**
+- `ORDER` - порядок слотов в формате `"0,1,2,3"` или `"0,1,none,3"`
 
 **Пример:**
 ```gcode
-[gcode_macro _ACE_RESET_INFINITYSPOOL]
+[gcode_macro SET_INFINITY_SPOOL_ORDER]
 gcode:
-    SAVE_VARIABLE VARIABLE=ace_infsp_counter VALUE=1
+    {% if params.ORDER is defined %}
+        ACE_SET_INFINITY_SPOOL_ORDER ORDER={params.ORDER}
+    {% else %}
+        RESPOND TYPE=error MSG="ORDER parameter required"
+    {% endif %}
+```
+
+#### `RESET_INFINITY_SPOOL`
+
+Сброс позиции в порядке infinity spool.
+
+**Пример:**
+```gcode
+[gcode_macro RESET_INFINITY_SPOOL]
+gcode:
+    SAVE_VARIABLE VARIABLE=ace_infsp_position VALUE=0
 ```
 
 ---
@@ -562,6 +597,13 @@ retract_speed: 25
 toolchange_retract_length: 100
 park_hit_count: 5
 disable_assist_after_toolchange: True
+```
+
+**После настройки конфигурации установите порядок слотов:**
+```gcode
+ACE_SET_INFINITY_SPOOL_ORDER ORDER="0,1,2,3"
+# Или с пропуском пустых слотов:
+ACE_SET_INFINITY_SPOOL_ORDER ORDER="0,1,none,3"
 ```
 
 ---

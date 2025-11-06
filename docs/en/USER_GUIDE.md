@@ -74,6 +74,21 @@ ACE_START_DRYING TEMP=50 DURATION=120
 ACE_STOP_DRYING
 ```
 
+### Infinity Spool
+
+```gcode
+# 1. First, set slot order
+ACE_SET_INFINITY_SPOOL_ORDER ORDER="0,1,2,3"
+
+# Or with empty slot skip:
+ACE_SET_INFINITY_SPOOL_ORDER ORDER="0,1,none,3"
+
+# 2. When filament runs out during printing
+ACE_INFINITY_SPOOL
+
+# Automatically switches to next slot according to order
+```
+
 ## Full Documentation
 
 For complete user guide with examples, scenarios, and integration guides, please refer to:

@@ -34,7 +34,9 @@ Complete list of all available G-code commands for controlling the Anycubic Colo
 - `ACE_DEBUG METHOD=<method> PARAMS=<json>` - Debug command
 
 ### Infinity Spool
-- `ACE_INFINITY_SPOOL` - Auto change spool when empty
+- `ACE_SET_INFINITY_SPOOL_ORDER ORDER="<order>"` - Set slot order (e.g., `"0,1,2,3"` or `"0,1,none,3"`)
+- `ACE_INFINITY_SPOOL` - Auto change spool when empty (uses configured order)
+- `RESET_INFINITY_SPOOL` - Reset position in order
 
 ### Aliases
 - `T0`, `T1`, `T2`, `T3` - Quick tool change (equivalent to `ACE_CHANGE_TOOL TOOL=0-3`)

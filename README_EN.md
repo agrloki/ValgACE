@@ -31,7 +31,7 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 - Automatic tool change (4 slots)
 - Filament feed and retract with adjustable speed
 - Automatic filament parking to nozzle
-- Infinity spool mode
+- Infinity spool mode with configurable slot order
 
 ✅ **Drying Control**
 - Programmable filament drying
@@ -140,6 +140,10 @@ ACE_RETRACT INDEX=0 LENGTH=50 SPEED=25
 # Filament drying
 ACE_START_DRYING TEMP=50 DURATION=120
 ACE_STOP_DRYING
+
+# Infinity spool mode
+ACE_SET_INFINITY_SPOOL_ORDER ORDER="0,1,2,3"  # Set slot order
+ACE_INFINITY_SPOOL  # Auto change spool when empty
 ```
 
 Full command list available in [Commands Reference](docs/en/COMMANDS.md).

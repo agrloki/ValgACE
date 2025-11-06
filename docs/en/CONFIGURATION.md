@@ -32,6 +32,7 @@ park_hit_count: 5
 - `max_dryer_temperature` - Maximum dryer temperature in °C (default: 55)
 - `disable_assist_after_toolchange` - Disable feed assist after tool change (default: True)
 - `infinity_spool_mode` - Enable infinity spool mode (default: False)
+  - Requires setting slot order via `ACE_SET_INFINITY_SPOOL_ORDER ORDER="..."`
 
 ### Timeouts
 - `response_timeout` - Response timeout in seconds (default: 2.0)
