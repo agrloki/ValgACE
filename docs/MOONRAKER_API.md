@@ -1071,8 +1071,12 @@ curl -X POST http://localhost:7125/server/ace/command \
 - **Mainsail** - через кастомные компоненты
 - **Fluidd** - через кастомные компоненты
 - **Кастомные веб-интерфейсы** - через REST API и WebSocket
+- **[ValgACE Dashboard](../examples/README.md)** - готовый веб-интерфейс для управления ACE
 
-Примеры интеграции см. в `docs/examples/` (если доступны).
+Примеры интеграции см. в `docs/examples/`:
+- `ace-dashboard.html` - полнофункциональный веб-интерфейс с Vue.js
+- `ace-dashboard.css` - стили интерфейса
+- `ace-dashboard.js` - логика работы с API
 
 ### Производительность
 

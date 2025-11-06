@@ -59,8 +59,8 @@ class AceStatus:
     async def handle_status_request(self, webrequest: WebRequest) -> Dict[str, Any]:
         """Обработка запроса статуса ACE"""
         try:
-            # Пытаемся получить данные напрямую из модуля ace через query_objects
-            # Это работает только если модуль ace экспортирует данные в статус
+            # Получаем данные напрямую из модуля ace через query_objects
+            # Модуль ace экспортирует данные через register_status_handler
             try:
                 result = await self.klippy_apis.query_objects({'ace': None})
                 ace_data = result.get('ace')
@@ -68,17 +68,19 @@ class AceStatus:
                 if ace_data and isinstance(ace_data, dict):
                     self._last_status = ace_data
                     return ace_data
+                else:
+                    self.logger.debug("ACE data not found in query_objects response")
             
             except Exception as e:
                 self.logger.debug(f"Could not get ACE data from query_objects: {e}")
             
             # Fallback: используем кэшированный статус если есть
             if self._last_status:
+                self.logger.debug("Using cached ACE status")
                 return self._last_status
             
             # Если данных нет, возвращаем структуру по умолчанию
-            # В реальной реализации здесь можно выполнить G-code команду
-            # и парсить текстовый ответ, но это менее эффективно
+            self.logger.warning("No ACE data available, returning default structure")
             return {
                 "status": "unknown",
                 "model": "Anycubic Color Engine Pro",

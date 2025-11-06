@@ -1,0 +1,398 @@
+# Nginx конфигурация для ValgACE Dashboard
+
+Примеры конфигурации nginx для хостинга веб-интерфейса ValgACE Dashboard.
+
+## Базовая конфигурация
+
+### Вариант 1: Отдельный виртуальный хост
+
+Создайте файл `/etc/nginx/sites-available/ace-dashboard`:
+
+```nginx
+server {
+    listen 80;
+    server_name ace-dashboard.local;  # Замените на ваш домен или IP
+    
+    root /path/to/ValgACE/docs/examples;  # Путь к файлам dashboard
+    index ace-dashboard.html;
+    
+    # Логирование
+    access_log /var/log/nginx/ace-dashboard-access.log;
+    error_log /var/log/nginx/ace-dashboard-error.log;
+    
+    # Основной файл
+    location / {
+        try_files $uri $uri/ /ace-dashboard.html;
+    }
+    
+    # Статические файлы
+    location ~* \.(css|js|png|jpg|jpeg|gif|ico|svg)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+    
+    # Проксирование API запросов к Moonraker
+    location /server/ {
+        proxy_pass http://localhost:7125;
+        proxy_http_version 1.1;
+        
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Таймауты для WebSocket
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+    
+    # Проксирование WebSocket
+    location /websocket {
+        proxy_pass http://localhost:7125/websocket;
+        proxy_http_version 1.1;
+        
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Таймауты для WebSocket
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+}
+```
+
+Активируйте конфигурацию:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/ace-dashboard /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### Вариант 2: Поддомен для существующего сайта
+
+Добавьте в существующий конфиг nginx:
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+    
+    # ... существующая конфигурация ...
+    
+    # ValgACE Dashboard на поддомене
+    location /ace {
+        alias /path/to/ValgACE/docs/examples;
+        index ace-dashboard.html;
+        try_files $uri $uri/ /ace/ace-dashboard.html;
+    }
+    
+    # Проксирование API
+    location /ace/server/ {
+        rewrite ^/ace/server/(.*) /server/$1 break;
+        proxy_pass http://localhost:7125;
+        proxy_http_version 1.1;
+        
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+    
+    # Проксирование WebSocket
+    location /ace/websocket {
+        rewrite ^/ace/websocket /websocket break;
+        proxy_pass http://localhost:7125;
+        proxy_http_version 1.1;
+        
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+}
+```
+
+## Конфигурация с SSL (HTTPS)
+
+### Использование Let's Encrypt
+
+```nginx
+server {
+    listen 80;
+    server_name ace-dashboard.example.com;
+    
+    # Редирект на HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name ace-dashboard.example.com;
+    
+    # SSL сертификаты (Let's Encrypt)
+    ssl_certificate /etc/letsencrypt/live/ace-dashboard.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ace-dashboard.example.com/privkey.pem;
+    
+    # SSL настройки
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    
+    root /path/to/ValgACE/docs/examples;
+    index ace-dashboard.html;
+    
+    # Основной файл
+    location / {
+        try_files $uri $uri/ /ace-dashboard.html;
+    }
+    
+    # Статические файлы
+    location ~* \.(css|js|png|jpg|jpeg|gif|ico|svg)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+    
+    # Проксирование API запросов к Moonraker
+    location /server/ {
+        proxy_pass http://localhost:7125;
+        proxy_http_version 1.1;
+        
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+    
+    # Проксирование WebSocket
+    location /websocket {
+        proxy_pass http://localhost:7125/websocket;
+        proxy_http_version 1.1;
+        
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+}
+```
+
+Получение сертификата Let's Encrypt:
+
+```bash
+sudo certbot --nginx -d ace-dashboard.example.com
+```
+
+## Интеграция с Mainsail/Fluidd
+
+Если у вас уже настроен Mainsail или Fluidd, можно добавить dashboard как дополнительный путь:
+
+```nginx
+server {
+    listen 80;
+    server_name printer.local;
+    
+    # Mainsail/Fluidd
+    location / {
+        proxy_pass http://localhost:7126;  # или другой порт вашего веб-интерфейса
+        # ... настройки прокси ...
+    }
+    
+    # ValgACE Dashboard
+    location /ace {
+        alias /path/to/ValgACE/docs/examples;
+        index ace-dashboard.html;
+        try_files $uri $uri/ /ace/ace-dashboard.html;
+    }
+    
+    # Проксирование Moonraker API (если еще не настроено)
+    location /server/ {
+        proxy_pass http://localhost:7125;
+        proxy_http_version 1.1;
+        
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+    
+    # WebSocket
+    location /websocket {
+        proxy_pass http://localhost:7125/websocket;
+        proxy_http_version 1.1;
+        
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+}
+```
+
+## Настройка конфигурации dashboard
+
+После настройки nginx, обновите `ace-dashboard-config.js`:
+
+```javascript
+const ACE_DASHBOARD_CONFIG = {
+    // Если nginx проксирует на localhost:7125, используйте относительный путь
+    apiBase: window.location.origin,
+    
+    // Или укажите явно, если Moonraker на другом хосте
+    // apiBase: 'http://192.168.1.100:7125',
+    
+    // Остальные настройки...
+};
+```
+
+## Безопасность
+
+### Ограничение доступа по IP
+
+```nginx
+location / {
+    # Разрешить только локальную сеть
+    allow 192.168.0.0/16;
+    allow 10.0.0.0/8;
+    allow 172.16.0.0/12;
+    deny all;
+    
+    try_files $uri $uri/ /ace-dashboard.html;
+}
+```
+
+### Базовая аутентификация
+
+```nginx
+location / {
+    auth_basic "ValgACE Dashboard";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+    
+    try_files $uri $uri/ /ace-dashboard.html;
+}
+```
+
+Создание файла паролей:
+
+```bash
+sudo htpasswd -c /etc/nginx/.htpasswd username
+```
+
+## Проверка конфигурации
+
+1. Проверьте синтаксис nginx:
+   ```bash
+   sudo nginx -t
+   ```
+
+2. Перезагрузите nginx:
+   ```bash
+   sudo systemctl reload nginx
+   ```
+
+3. Проверьте доступность:
+   ```bash
+   curl http://your-server/ace-dashboard.html
+   ```
+
+4. Проверьте API:
+   ```bash
+   curl http://your-server/server/ace/status
+   ```
+
+## Устранение неполадок
+
+### 502 Bad Gateway
+
+- Проверьте, что Moonraker запущен: `systemctl status moonraker`
+- Проверьте, что Moonraker слушает на порту 7125: `netstat -tlnp | grep 7125`
+- Проверьте логи nginx: `tail -f /var/log/nginx/error.log`
+
+### WebSocket не подключается
+
+- Убедитесь, что настроены правильные заголовки `Upgrade` и `Connection`
+- Проверьте таймауты WebSocket
+- Проверьте логи Moonraker на наличие ошибок
+
+### CORS ошибки
+
+Если Moonraker находится на другом хосте, добавьте в `moonraker.conf`:
+
+```ini
+[cors_domains]
+*.local
+*.lan
+your-domain.com
+*:*
+```
+
+## Примеры использования
+
+### Доступ через IP
+
+```nginx
+server {
+    listen 80;
+    server_name 192.168.1.100;  # IP адрес сервера
+    
+    root /home/user/ValgACE/docs/examples;
+    index ace-dashboard.html;
+    
+    # ... остальная конфигурация ...
+}
+```
+
+### Доступ через домен
+
+```nginx
+server {
+    listen 80;
+    server_name ace.yourdomain.com;
+    
+    root /var/www/ace-dashboard;
+    index ace-dashboard.html;
+    
+    # ... остальная конфигурация ...
+}
+```
+
+---
+
+*Последнее обновление: 2024*
+

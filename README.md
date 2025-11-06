@@ -183,6 +183,22 @@ curl -X POST http://localhost:7125/server/ace/command \
 
 Подробная документация по REST API: [Moonraker API](docs/MOONRAKER_API.md)
 
+## Веб-интерфейс
+
+Готовый веб-интерфейс для управления ACE доступен в `docs/examples/`:
+
+- **[ValgACE Dashboard](docs/examples/README.md)** - полнофункциональный веб-интерфейс с Vue.js
+- Отображение статуса устройства в реальном времени
+- Управление слотами филамента
+- Управление сушкой
+- Подача и откат филамента
+- WebSocket подключение для обновлений в реальном времени
+
+Файлы:
+- `ace-dashboard.html` - основной интерфейс
+- `ace-dashboard.css` - стили
+- `ace-dashboard.js` - логика работы с API
+
 ## Поддержка
 
 ### Обсуждения

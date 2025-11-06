@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ValgACE Control Panel</title>
+    <link rel="stylesheet" href="ace-dashboard.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="ace-dashboard-config.js"></script>
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <!-- Header -->
+            <header class="header">
+                <h1>🎨 ValgACE Control Panel</h1>
+                <div class="connection-status" :class="{ connected: wsConnected, disconnected: !wsConnected }">
+                    <span class="status-dot"></span>
+                    <span>{{ wsConnected ? 'Подключено' : 'Отключено' }}</span>
+                </div>
+            </header>
+
+            <!-- Device Status Card -->
+            <div class="card device-status-card">
+                <h2>Статус устройства</h2>
+                <div class="device-info">
+                    <div class="info-row">
+                        <span class="label">Модель:</span>
+                        <span class="value">{{ deviceStatus.model || 'Unknown' }}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">Прошивка:</span>
+                        <span class="value">{{ deviceStatus.firmware || 'Unknown' }}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">Статус:</span>
+                        <span class="value status-badge" :class="deviceStatus.status">
+                            {{ getStatusText(deviceStatus.status) }}
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">Температура:</span>
+                        <span class="value">{{ deviceStatus.temp || 0 }}°C</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">Вентилятор:</span>
+                        <span class="value">{{ deviceStatus.fan_speed || 0 }} RPM</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">RFID:</span>
+                        <span class="value">{{ deviceStatus.enable_rfid ? 'Включен' : 'Выключен' }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dryer Control Card -->
+            <div class="card dryer-card">
+                <h2>Управление сушкой</h2>
+                <div class="dryer-status">
+                    <div class="dryer-info">
+                        <div class="info-row">
+                            <span class="label">Статус:</span>
+                            <span class="value status-badge" :class="dryerStatus.status">
+                                {{ getDryerStatusText(dryerStatus.status) }}
+                            </span>
+                        </div>
+                        <div class="info-row" v-if="dryerStatus.status === 'drying'">
+                            <span class="label">Целевая температура:</span>
+                            <span class="value">{{ dryerStatus.target_temp }}°C</span>
+                        </div>
+                        <div class="info-row" v-if="dryerStatus.status === 'drying'">
+                            <span class="label">Осталось времени:</span>
+                            <span class="value">{{ formatTime(dryerStatus.remain_time) }}</span>
+                        </div>
+                    </div>
+                    <div class="dryer-controls">
+                        <div class="control-group">
+                            <label>Температура (°C):</label>
+                            <input type="number" v-model.number="dryingTemp" min="20" max="55" :disabled="dryerStatus.status === 'drying'">
+                        </div>
+                        <div class="control-group">
+                            <label>Длительность (мин):</label>
+                            <input type="number" v-model.number="dryingDuration" min="1" max="1440" :disabled="dryerStatus.status === 'drying'">
+                        </div>
+                        <div class="button-group">
+                            <button @click="startDrying" :disabled="dryerStatus.status === 'drying'" class="btn btn-primary">
+                                Запустить сушку
+                            </button>
+                            <button @click="stopDrying" :disabled="dryerStatus.status === 'stop'" class="btn btn-danger">
+                                Остановить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Slots Grid -->
+            <div class="card slots-card">
+                <h2>Слоты филамента</h2>
+                <div class="slots-grid">
+                    <div 
+                        v-for="slot in slots" 
+                        :key="slot.index"
+                        class="slot-card"
+                        :class="{ 
+                            ready: slot.status === 'ready',
+                            empty: slot.status === 'empty',
+                            busy: slot.status === 'busy',
+                            active: currentTool === slot.index
+                        }"
+                    >
+                        <div class="slot-header">
+                            <h3>Слот {{ slot.index }}</h3>
+                            <span class="slot-status-badge" :class="slot.status">
+                                {{ getSlotStatusText(slot.status) }}
+                            </span>
+                        </div>
+                        
+                        <div class="slot-color" :style="{ backgroundColor: getColorHex(slot.color) }">
+                            <span class="color-label">{{ getColorHex(slot.color) }}</span>
+                        </div>
+                        
+                        <div class="slot-info">
+                            <div class="info-item">
+                                <span class="label">Тип:</span>
+                                <span class="value">{{ slot.type || 'Не указан' }}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">SKU:</span>
+                                <span class="value">{{ slot.sku || 'Не указан' }}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">RFID:</span>
+                                <span class="value">{{ getRfidStatusText(slot.rfid) }}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="slot-actions">
+                            <button 
+                                @click="changeTool(slot.index)" 
+                                :disabled="slot.status !== 'ready' || currentTool === slot.index"
+                                class="btn btn-sm btn-primary"
+                            >
+                                Загрузить
+                            </button>
+                            <button 
+                                @click="parkToToolhead(slot.index)" 
+                                :disabled="slot.status !== 'ready'"
+                                class="btn btn-sm btn-secondary"
+                            >
+                                Парковка
+                            </button>
+                            <button 
+                                @click="showFeedDialog(slot.index)" 
+                                :disabled="slot.status !== 'ready'"
+                                class="btn btn-sm btn-info"
+                            >
+                                Подача
+                            </button>
+                            <button 
+                                @click="showRetractDialog(slot.index)" 
+                                :disabled="slot.status !== 'ready'"
+                                class="btn btn-sm btn-warning"
+                            >
+                                Откат
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="card quick-actions-card">
+                <h2>Быстрые действия</h2>
+                <div class="quick-actions">
+                    <button @click="unloadFilament" class="btn btn-danger">
+                        Выгрузить филамент
+                    </button>
+                    <button @click="refreshStatus" class="btn btn-secondary">
+                        Обновить статус
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Feed Dialog -->
+        <div v-if="showFeedModal" class="modal-overlay" @click="closeFeedDialog">
+            <div class="modal" @click.stop>
+                <h3>Подача филамента - Слот {{ feedSlot }}</h3>
+                <div class="form-group">
+                    <label>Длина (мм):</label>
+                    <input type="number" v-model.number="feedLength" min="1" max="2000">
+                </div>
+                <div class="form-group">
+                    <label>Скорость (мм/с):</label>
+                    <input type="number" v-model.number="feedSpeed" min="1" max="100">
+                </div>
+                <div class="modal-actions">
+                    <button @click="executeFeed" class="btn btn-primary">Выполнить</button>
+                    <button @click="closeFeedDialog" class="btn btn-secondary">Отмена</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Retract Dialog -->
+        <div v-if="showRetractModal" class="modal-overlay" @click="closeRetractDialog">
+            <div class="modal" @click.stop>
+                <h3>Откат филамента - Слот {{ retractSlot }}</h3>
+                <div class="form-group">
+                    <label>Длина (мм):</label>
+                    <input type="number" v-model.number="retractLength" min="1" max="2000">
+                </div>
+                <div class="form-group">
+                    <label>Скорость (мм/с):</label>
+                    <input type="number" v-model.number="retractSpeed" min="1" max="100">
+                </div>
+                <div class="modal-actions">
+                    <button @click="executeRetract" class="btn btn-primary">Выполнить</button>
+                    <button @click="closeRetractDialog" class="btn btn-secondary">Отмена</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification Toast -->
+        <div v-if="notification.show" class="toast" :class="notification.type">
+            {{ notification.message }}
+        </div>
+    </div>
+
+    <script src="ace-dashboard.js"></script>
+</body>
+</html>
+
