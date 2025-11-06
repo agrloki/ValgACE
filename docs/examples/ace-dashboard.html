@@ -151,6 +151,14 @@
                                 Парковка
                             </button>
                             <button 
+                                @click="toggleFeedAssist(slot.index)" 
+                                :disabled="slot.status !== 'ready'"
+                                class="btn btn-sm"
+                                :class="feedAssistSlot === slot.index ? 'btn-success' : 'btn-outline-success'"
+                            >
+                                {{ feedAssistSlot === slot.index ? 'Асист ВКЛ' : 'Асист' }}
+                            </button>
+                            <button 
                                 @click="showFeedDialog(slot.index)" 
                                 :disabled="slot.status !== 'ready'"
                                 class="btn btn-sm btn-info"

@@ -270,6 +270,7 @@ class ValgAce:
             'enable_rfid': self._info.get('enable_rfid', 0),
             'feed_assist_count': self._info.get('feed_assist_count', 0),
             'cont_assist_time': self._info.get('cont_assist_time', 0.0),
+            'feed_assist_slot': self._feed_assist_index,  # Индекс слота с активным feed assist (-1 = выключен)
             'dryer': self._info.get('dryer', {}) or self._info.get('dryer_status', {}),
             'dryer_status': self._info.get('dryer', {}) or self._info.get('dryer_status', {}),
             'slots': self._info.get('slots', [])

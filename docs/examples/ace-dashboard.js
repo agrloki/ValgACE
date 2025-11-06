@@ -33,6 +33,7 @@ createApp({
             // Slots
             slots: [],
             currentTool: -1,
+            feedAssistSlot: -1,  // Индекс слота с активным feed assist (-1 = выключен)
             
             // Modals
             showFeedModal: false,
@@ -202,11 +203,31 @@ createApp({
                 this.slots = [];
             }
             
+            // Обновляем состояние feed assist из статуса
+            if (data.feed_assist_slot !== undefined) {
+                this.feedAssistSlot = data.feed_assist_slot;
+            } else if (data.feed_assist_count !== undefined && data.feed_assist_count > 0) {
+                // Если feed_assist_slot не указан, но feed_assist_count > 0,
+                // значит feed assist активен, но мы не знаем для какого слота
+                // Оставляем текущее значение или пытаемся определить по другим признакам
+                if (this.feedAssistSlot === -1) {
+                    // Если не знаем, какой слот активен, но assist работает,
+                    // можно попробовать определить по текущему инструменту
+                    if (this.currentTool !== -1 && this.currentTool < 4) {
+                        this.feedAssistSlot = this.currentTool;
+                    }
+                }
+            } else {
+                // Если feed_assist_count = 0, значит assist выключен
+                this.feedAssistSlot = -1;
+            }
+            
             if (ACE_DASHBOARD_CONFIG?.debug) {
                 console.log('Status updated:', {
                     deviceStatus: this.deviceStatus,
                     dryerStatus: this.dryerStatus,
-                    slotsCount: this.slots.length
+                    slotsCount: this.slots.length,
+                    feedAssistSlot: this.feedAssistSlot
                 });
             }
         },
@@ -273,6 +294,37 @@ createApp({
         
         async parkToToolhead(index) {
             await this.executeCommand('ACE_PARK_TO_TOOLHEAD', { INDEX: index });
+        },
+        
+        // Feed Assist Actions
+        async toggleFeedAssist(index) {
+            if (this.feedAssistSlot === index) {
+                // Выключаем feed assist для текущего слота
+                await this.disableFeedAssist(index);
+            } else {
+                // Включаем feed assist для нового слота
+                // Сначала выключаем предыдущий, если был активен
+                if (this.feedAssistSlot !== -1) {
+                    await this.disableFeedAssist(this.feedAssistSlot);
+                }
+                await this.enableFeedAssist(index);
+            }
+        },
+        
+        async enableFeedAssist(index) {
+            const success = await this.executeCommand('ACE_ENABLE_FEED_ASSIST', { INDEX: index });
+            if (success) {
+                this.feedAssistSlot = index;
+                this.showNotification(`Feed assist включен для слота ${index}`, 'success');
+            }
+        },
+        
+        async disableFeedAssist(index) {
+            const success = await this.executeCommand('ACE_DISABLE_FEED_ASSIST', { INDEX: index });
+            if (success) {
+                this.feedAssistSlot = -1;
+                this.showNotification(`Feed assist выключен для слота ${index}`, 'success');
+            }
         },
         
         // Dryer Actions

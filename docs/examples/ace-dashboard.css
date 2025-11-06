@@ -251,6 +251,26 @@ body {
     background: #d97706;
 }
 
+.btn-success {
+    background: #10b981;
+    color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+    background: #059669;
+}
+
+.btn-outline-success {
+    background: transparent;
+    color: #10b981;
+    border: 2px solid #10b981;
+}
+
+.btn-outline-success:hover:not(:disabled) {
+    background: #10b981;
+    color: white;
+}
+
 .btn-sm {
     padding: 6px 12px;
     font-size: 12px;
