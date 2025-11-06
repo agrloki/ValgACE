@@ -17,6 +17,7 @@
 
 - **[Протокол](Protocol.md)** - Техническое описание протокола взаимодействия с ACE Pro (English)
 - **[Протокол (русский)](Protocol_ru.md)** - Техническое описание протокола взаимодействия с ACE Pro
+- **[Moonraker API](MOONRAKER_API.md)** - Подробная документация по интеграции с Moonraker API
 
 ## Быстрая навигация
 
@@ -36,9 +37,10 @@
 ### Для разработчиков
 
 - Исходный код: `extras/ace.py`
+- Moonraker компонент: `moonraker/ace_status.py`
 - Протокол: [Protocol.md](Protocol.md) / [Protocol_ru.md](Protocol_ru.md)
+- Moonraker API: [MOONRAKER_API.md](MOONRAKER_API.md) - подробная документация по интеграции
 - Примеры макросов: `ace.cfg.sample`
-- Примеры интеграции: [examples/](examples/) - интеграция с Moonraker API и веб-интерфейс
 
 ## Версия документации
 

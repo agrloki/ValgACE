@@ -13,6 +13,7 @@ fi
 KLIPPER_HOME="${HOME}/klipper"
 KLIPPER_CONFIG_HOME="${HOME}/printer_data/config"
 MOONRAKER_CONFIG_DIR="${HOME}/printer_data/config"
+MOONRAKER_HOME="${HOME}/moonraker"
 SRCDIR="$PWD"
 KLIPPER_ENV="${HOME}/klippy-env/bin"
 
@@ -96,6 +97,12 @@ check_folders() {
         missing=1
     fi
 
+    # Moonraker home (для линка компонента)
+    if [ ! -d "${MOONRAKER_HOME}" ]; then
+        echo "[ERROR] Moonraker home not found: ${MOONRAKER_HOME}"
+        missing=1
+    fi
+
     if [ $missing -ne 0 ]; then
         exit 1
     fi
@@ -115,6 +122,33 @@ link_extension() {
     else
         echo "[FAILED]"
         exit 1
+    fi
+}
+
+link_moonraker_component() {
+    if [ ! -f "${SRCDIR}/moonraker/ace_status.py" ]; then
+        echo "[ERROR] Source file ${SRCDIR}/moonraker/ace_status.py not found"
+        exit 1
+    fi
+
+    # Ensure destination directory exists
+    DEST_DIR="${MOONRAKER_HOME}/moonraker/components"
+    mkdir -p "${DEST_DIR}"
+
+    echo -n "Linking Moonraker component... "
+    if ln -sf "${SRCDIR}/moonraker/ace_status.py" "${DEST_DIR}/ace_status.py"; then
+        echo "[OK]"
+    else
+        echo "[FAILED]"
+        exit 1
+    fi
+
+    # Ensure config section exists in moonraker.conf
+    if ! grep -q "^\[ace_status\]" "${MOONRAKER_CONFIG_DIR}/moonraker.conf"; then
+        echo -n "Adding [ace_status] to moonraker.conf... "
+        printf "\n[ace_status]\n" >> "${MOONRAKER_CONFIG_DIR}/moonraker.conf" && echo "[OK]" || echo "[FAILED]"
+    else
+        echo "[SKIPPED] ([ace_status] already present in moonraker.conf)"
     fi
 }
 
@@ -230,6 +264,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
 else
     install_requirements
     link_extension
+    link_moonraker_component
     copy_config
     add_updater
     restart_service "$MOONRAKER_SERVICE"

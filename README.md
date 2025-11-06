@@ -48,6 +48,12 @@ ValgACE представляет собой полнофункциональны
 - Асинхронная обработка команд
 - Совместимость с существующими конфигурациями
 
+✅ **REST API через Moonraker**
+- Получение статуса ACE через HTTP API
+- Выполнение команд через REST эндпоинты
+- WebSocket подписка на обновления статуса
+- Интеграция с веб-интерфейсами (Mainsail, Fluidd)
+
 ## Системные требования
 
 - **Klipper** - свежая установка (рекомендуется)
@@ -119,6 +125,7 @@ ACE_DEBUG METHOD=get_info
 - **[Решение проблем](docs/TROUBLESHOOTING.md)** - типичные проблемы и решения
 - **[Протокол](docs/Protocol.md)** - техническая документация протокола (English)
 - **[Протокол (русский)](docs/Protocol_ru.md)** - техническая документация протокола
+- **[Moonraker API](docs/MOONRAKER_API.md)** - интеграция с Moonraker API и REST эндпоинты
 
 **English Documentation:**
 - **[Installation](docs/en/INSTALLATION.md)** - detailed installation guide
@@ -127,6 +134,7 @@ ACE_DEBUG METHOD=get_info
 - **[Configuration](docs/en/CONFIGURATION.md)** - parameter configuration
 - **[Troubleshooting](docs/en/TROUBLESHOOTING.md)** - common issues and solutions
 - **[Protocol](docs/Protocol.md)** - technical protocol documentation (English)
+- **[Moonraker API](docs/MOONRAKER_API.md)** - Moonraker API integration and REST endpoints (Russian)
 
 ## Основные команды
 
@@ -155,6 +163,25 @@ ACE_INFINITY_SPOOL  # Автоматическая смена при оконч�
 ```
 
 Полный список команд см. в [Справочнике команд](docs/COMMANDS.md).
+
+## REST API
+
+После установки доступны REST API эндпоинты через Moonraker:
+
+```bash
+# Получить статус ACE
+curl http://localhost:7125/server/ace/status
+
+# Получить информацию о слотах
+curl http://localhost:7125/server/ace/slots
+
+# Выполнить команду ACE
+curl -X POST http://localhost:7125/server/ace/command \
+  -H "Content-Type: application/json" \
+  -d '{"command":"ACE_PARK_TO_TOOLHEAD","params":{"INDEX":0}}'
+```
+
+Подробная документация по REST API: [Moonraker API](docs/MOONRAKER_API.md)
 
 ## Поддержка
 

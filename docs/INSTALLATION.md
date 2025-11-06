@@ -212,6 +212,27 @@ python3 -c "import serial; print('pyserial OK')"
 
 ## Настройка Moonraker
 
+### 1) Автоматическая интеграция ACE Status API (рекомендуется)
+
+Скрипт установки `install.sh` автоматически:
+- создаёт симлинк компонента `ace_status.py` в `~/moonraker/moonraker/components/ace_status.py`
+- добавляет секцию `[ace_status]` в `moonraker.conf` (если её ещё нет)
+- перезапускает Moonraker
+
+После установки доступны REST-эндпоинты:
+- `GET /server/ace/status` — статус ACE
+- `GET /server/ace/slots` — информация о слотах
+- `POST /server/ace/command` — выполнение команд `ACE_*`
+
+Пример запроса:
+```bash
+curl -X POST http://<HOST>:7125/server/ace/command \
+  -H "Content-Type: application/json" \
+  -d '{"command":"ACE_PARK_TO_TOOLHEAD","params":{"INDEX":0}}'
+```
+
+### 2) Автоматические обновления (update_manager)
+
 Для автоматических обновлений добавьте в `moonraker.conf`:
 
 ```ini
@@ -223,7 +244,7 @@ primary_branch: main
 managed_services: klipper
 ```
 
-Скрипт `install.sh` делает это автоматически.
+Скрипт `install.sh` добавляет этот блок автоматически.
 
 ---
 
