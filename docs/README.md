@@ -38,6 +38,7 @@
 - Исходный код: `extras/ace.py`
 - Протокол: [Protocol.md](Protocol.md) / [Protocol_ru.md](Protocol_ru.md)
 - Примеры макросов: `ace.cfg.sample`
+- Примеры интеграции: [examples/](examples/) - интеграция с Moonraker API и веб-интерфейс
 
 ## Версия документации
 
