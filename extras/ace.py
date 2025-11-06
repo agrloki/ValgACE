@@ -507,11 +507,80 @@ class ValgAce:
 
     def cmd_ACE_STATUS(self, gcmd):
         try:
-            status = json.dumps(self._info, indent=2)
-            gcmd.respond_info(f"ACE Status:\n{status}")
+            info = self._info
+            output = []
+            
+            # Device Information
+            output.append("=== ACE Device Status ===")
+            output.append(f"Status: {info.get('status', 'unknown')}")
+            
+            # Device Info
+            if 'model' in info:
+                output.append(f"Model: {info.get('model', 'Unknown')}")
+            if 'firmware' in info:
+                output.append(f"Firmware: {info.get('firmware', 'Unknown')}")
+            if 'boot_firmware' in info:
+                output.append(f"Boot Firmware: {info.get('boot_firmware', 'Unknown')}")
+            
+            output.append("")
+            
+            # Dryer Status
+            output.append("=== Dryer ===")
+            dryer = info.get('dryer', {}) or info.get('dryer_status', {})
+            dryer_status = dryer.get('status', 'unknown')
+            output.append(f"Status: {dryer_status}")
+            if dryer_status == 'drying':
+                output.append(f"Target Temperature: {dryer.get('target_temp', 0)}°C")
+                output.append(f"Current Temperature: {info.get('temp', 0)}°C")
+                output.append(f"Duration: {dryer.get('duration', 0)} minutes")
+                remain_time = dryer.get('remain_time', 0)
+                if remain_time > 0:
+                    hours = remain_time // 60
+                    minutes = remain_time % 60
+                    output.append(f"Remaining Time: {hours}h {minutes}m")
+            else:
+                output.append(f"Temperature: {info.get('temp', 0)}°C")
+            
+            output.append("")
+            
+            # Device Parameters
+            output.append("=== Device Parameters ===")
+            output.append(f"Fan Speed: {info.get('fan_speed', 0)} RPM")
+            output.append(f"RFID Enabled: {'Yes' if info.get('enable_rfid', 0) else 'No'}")
+            output.append(f"Feed Assist Count: {info.get('feed_assist_count', 0)}")
+            cont_assist = info.get('cont_assist_time', 0.0)
+            if cont_assist > 0:
+                output.append(f"Continuous Assist Time: {cont_assist:.1f} ms")
+            
+            output.append("")
+            
+            # Slots Information
+            output.append("=== Filament Slots ===")
+            slots = info.get('slots', [])
+            for slot in slots:
+                index = slot.get('index', -1)
+                status = slot.get('status', 'unknown')
+                slot_type = slot.get('type', '')
+                color = slot.get('color', [0, 0, 0])
+                sku = slot.get('sku', '')
+                rfid_status = slot.get('rfid', 0)
+                
+                output.append(f"Slot {index}:")
+                output.append(f"  Status: {status}")
+                if slot_type:
+                    output.append(f"  Type: {slot_type}")
+                if sku:
+                    output.append(f"  SKU: {sku}")
+                if color and isinstance(color, list) and len(color) >= 3:
+                    output.append(f"  Color: RGB({color[0]}, {color[1]}, {color[2]})")
+                rfid_text = {0: "Not found", 1: "Failed", 2: "Identified", 3: "Identifying"}.get(rfid_status, "Unknown")
+                output.append(f"  RFID: {rfid_text}")
+                output.append("")
+            
+            gcmd.respond_info("\n".join(output))
         except Exception as e:
             self.logger.info(f"Status command error: {str(e)}")
-            gcmd.respond_raw("Error retrieving status")
+            gcmd.respond_raw(f"Error retrieving status: {str(e)}")
 
     def cmd_ACE_DEBUG(self, gcmd):
         method = gcmd.get('METHOD')
