@@ -613,13 +613,25 @@ class ValgAce:
                     duration = duration // 60
                 output.append(f"Duration: {duration} minutes")
                 remain_time = dryer.get('remain_time', 0)
-                # Если remain_time в секундах, конвертируем в минуты
-                if remain_time > 1000:  # Вероятно в секундах
-                    remain_time = remain_time // 60
+                # remain_time приходит в минутах (по протоколу)
+                # Если значение > 1440, вероятно это секунды, конвертируем
+                if remain_time > 1440:
+                    remain_time = remain_time / 60  # Сохраняем дробную часть
                 if remain_time > 0:
-                    hours = remain_time // 60
-                    minutes = remain_time % 60
-                    output.append(f"Remaining Time: {hours}h {minutes}m")
+                    # Форматируем как "119m 54s"
+                    total_minutes = int(remain_time)
+                    fractional_part = remain_time - total_minutes
+                    seconds = int(round(fractional_part * 60))
+                    if seconds >= 60:
+                        total_minutes += 1
+                        seconds = 0
+                    if total_minutes > 0:
+                        if seconds > 0:
+                            output.append(f"Remaining Time: {total_minutes}m {seconds}s")
+                        else:
+                            output.append(f"Remaining Time: {total_minutes}m")
+                    else:
+                        output.append(f"Remaining Time: {seconds}s")
             else:
                 output.append(f"Temperature: {info.get('temp', 0)}°C")
             
