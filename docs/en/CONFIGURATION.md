@@ -6,6 +6,8 @@ Complete guide to configuring the ValgACE module parameters.
 
 ## Quick Configuration
 
+**Note:** The `ace.cfg.sample` file contains configuration examples and ready-to-use G-code macros that can be used as a starting point for your configuration. It's recommended to copy `ace.cfg.sample` to `ace.cfg` and adapt it to your printer.
+
 ### Basic Setup
 
 ```ini
