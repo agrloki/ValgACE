@@ -181,18 +181,28 @@ createApp({
             
             // Обновляем статус сушилки
             const dryer = data.dryer || data.dryer_status || {};
-            // remain_time может приходить в секундах, конвертируем в минуты если > 1000
-            let remain_time = dryer.remain_time || 0;
-            if (remain_time > 1000) {
-                // Вероятно в секундах, конвертируем в минуты
-                remain_time = Math.floor(remain_time / 60);
-            }
-            // duration также может быть в секундах
+            
+            // Определяем единицы измерения времени
+            // Если duration > 1440 минут (24 часа), вероятно это секунды
             let duration = dryer.duration || 0;
-            if (duration > 1000) {
+            let remain_time = dryer.remain_time || 0;
+            
+            if (duration > 1440) {
                 // Вероятно в секундах, конвертируем в минуты
                 duration = Math.floor(duration / 60);
+                remain_time = Math.floor(remain_time / 60);
+            } else if (duration > 0 && remain_time > 0) {
+                // duration в минутах, проверяем remain_time
+                // Если remain_time больше duration, вероятно это секунды
+                if (remain_time > duration) {
+                    // remain_time в секундах, конвертируем в минуты
+                    remain_time = Math.floor(remain_time / 60);
+                } else if (remain_time > 1440) {
+                    // remain_time слишком большое для минут, вероятно секунды
+                    remain_time = Math.floor(remain_time / 60);
+                }
             }
+            
             this.dryerStatus = {
                 status: dryer.status || 'stop',
                 target_temp: dryer.target_temp || 0,

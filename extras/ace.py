@@ -267,16 +267,27 @@ class ValgAce:
         # Нормализуем время: конвертируем секунды в минуты если нужно
         if isinstance(dryer_data, dict):
             dryer_normalized = dryer_data.copy()
-            # remain_time может быть в секундах
-            if 'remain_time' in dryer_normalized:
-                remain_time = dryer_normalized['remain_time']
-                if remain_time > 1000:  # Вероятно в секундах
-                    dryer_normalized['remain_time'] = remain_time // 60
-            # duration может быть в секундах
-            if 'duration' in dryer_normalized:
-                duration = dryer_normalized['duration']
-                if duration > 1000:  # Вероятно в секундах
-                    dryer_normalized['duration'] = duration // 60
+            
+            # Определяем единицы измерения по duration
+            # Если duration > 1440 (24 часа в минутах), вероятно это секунды
+            duration_raw = dryer_normalized.get('duration', 0)
+            if duration_raw > 1440:
+                # Вероятно в секундах, конвертируем в минуты
+                dryer_normalized['duration'] = duration_raw // 60
+                # remain_time также в секундах
+                if 'remain_time' in dryer_normalized:
+                    remain_time_raw = dryer_normalized['remain_time']
+                    dryer_normalized['remain_time'] = remain_time_raw // 60
+            elif duration_raw > 0:
+                # duration в минутах, проверяем remain_time
+                remain_time_raw = dryer_normalized.get('remain_time', 0)
+                # Если remain_time больше duration, вероятно это секунды
+                if remain_time_raw > duration_raw:
+                    # remain_time в секундах, конвертируем в минуты
+                    dryer_normalized['remain_time'] = remain_time_raw // 60
+                elif remain_time_raw > 1440:
+                    # remain_time слишком большое для минут, вероятно секунды
+                    dryer_normalized['remain_time'] = remain_time_raw // 60
         else:
             dryer_normalized = {}
         
