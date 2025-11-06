@@ -448,6 +448,15 @@ class ValgAce:
                     self.logger.info(f"Callback error: {str(e)}")
         if 'result' in response and isinstance(response['result'], dict):
             result = response['result']
+            
+            # ОТЛАДКА: Выводим сырой JSON для всех ответов со статусом
+            # Проверяем наличие данных о сушилке как признак ответа на get_status
+            if 'dryer' in result or 'dryer_status' in result or 'slots' in result:
+                self.logger.info(f"RAW JSON response from device (get_status): {json.dumps(response, indent=2)}")
+                if 'dryer' in result or 'dryer_status' in result:
+                    dryer_data = result.get('dryer') or result.get('dryer_status', {})
+                    self.logger.info(f"RAW dryer data: {json.dumps(dryer_data, indent=2)}")
+            
             # Нормализация данных о сушилке: если приходит dryer_status, сохраняем также как dryer
             if 'dryer_status' in result and isinstance(result['dryer_status'], dict):
                 result['dryer'] = result['dryer_status']
@@ -559,8 +568,16 @@ class ValgAce:
             # Запрашиваем свежий статус перед выводом
             # Request fresh status before output
             def status_callback(response):
+                # ОТЛАДКА: Выводим сырой JSON ответа
+                self.logger.info(f"RAW JSON response in ACE_STATUS callback: {json.dumps(response, indent=2)}")
+                
                 if 'result' in response:
                     result = response['result']
+                    # ОТЛАДКА: Выводим данные о сушилке
+                    if 'dryer' in result or 'dryer_status' in result:
+                        dryer_data = result.get('dryer') or result.get('dryer_status', {})
+                        self.logger.info(f"RAW dryer data in callback: {json.dumps(dryer_data, indent=2)}")
+                    
                     # Нормализация данных о сушилке
                     if 'dryer_status' in result and isinstance(result['dryer_status'], dict):
                         result['dryer'] = result['dryer_status']
