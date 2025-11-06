@@ -744,7 +744,7 @@ class ValgAce:
             "params": {
                 "temp": temperature,
                 "fan_speed": 7000,
-                "duration": duration * 60
+                "duration": duration 
             }
         }, callback)
 
