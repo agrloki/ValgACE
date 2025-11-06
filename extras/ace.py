@@ -273,12 +273,12 @@ class ValgAce:
             duration_raw = dryer_normalized.get('duration', 0)
             remain_time_raw = dryer_normalized.get('remain_time', 0)
             
-            # Если duration > 1440 минут (24 часа), вероятно это секунды
-            if duration_raw > 1440:
+            # Если duration > 1000, это точно секунды (сушка не длится больше 16 часов)
+            if duration_raw > 1000:
                 dryer_normalized['duration'] = duration_raw / 60  # Сохраняем дробную часть
                 if remain_time_raw > 0:
                     dryer_normalized['remain_time'] = remain_time_raw / 60  # Сохраняем дробную часть
-            elif remain_time_raw > 1440:
+            elif remain_time_raw > 1000:
                 # duration в минутах, но remain_time в секундах
                 dryer_normalized['remain_time'] = remain_time_raw / 60  # Сохраняем дробную часть
             # Иначе оставляем как есть (уже в минутах)
@@ -615,8 +615,9 @@ class ValgAce:
                 remain_time = dryer.get('remain_time', 0)
                 
                 # Определяем единицы измерения remain_time
-                # Если remain_time > 1440 (24 часа в минутах) или больше duration, вероятно это секунды
-                if remain_time > 1440 or (duration > 0 and remain_time > duration * 1.5):
+                # Если remain_time > 1000, это точно секунды (сушка не длится больше 16 часов)
+                # Или если remain_time значительно больше duration
+                if remain_time > 1000 or (duration > 0 and remain_time > duration * 1.5):
                     # Вероятно в секундах, конвертируем в минуты
                     remain_time = remain_time / 60  # Сохраняем дробную часть
                 
