@@ -613,10 +613,13 @@ class ValgAce:
                     duration = duration // 60
                 output.append(f"Duration: {duration} minutes")
                 remain_time = dryer.get('remain_time', 0)
-                # remain_time приходит в минутах (по протоколу)
-                # Если значение > 1440, вероятно это секунды, конвертируем
-                if remain_time > 1440:
+                
+                # Определяем единицы измерения remain_time
+                # Если remain_time > 1440 (24 часа в минутах) или больше duration, вероятно это секунды
+                if remain_time > 1440 or (duration > 0 and remain_time > duration * 1.5):
+                    # Вероятно в секундах, конвертируем в минуты
                     remain_time = remain_time / 60  # Сохраняем дробную часть
+                
                 if remain_time > 0:
                     # Форматируем как "119m 54s"
                     total_minutes = int(remain_time)
