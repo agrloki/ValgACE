@@ -182,32 +182,25 @@ createApp({
             // Обновляем статус сушилки
             const dryer = data.dryer || data.dryer_status || {};
             
-            // Определяем единицы измерения времени
-            // Если duration > 1440 минут (24 часа), вероятно это секунды
+            // remain_time и duration приходят в минутах (по протоколу)
+            // Но могут приходить в секундах, если устройство отправляет не по протоколу
             let duration = dryer.duration || 0;
             let remain_time = dryer.remain_time || 0;
             
+            // Проверяем, если значения слишком большие для минут (> 1440 = 24 часа)
+            // то вероятно это секунды, конвертируем
             if (duration > 1440) {
-                // Вероятно в секундах, конвертируем в минуты
                 duration = Math.floor(duration / 60);
-                remain_time = Math.floor(remain_time / 60);
-            } else if (duration > 0 && remain_time > 0) {
-                // duration в минутах, проверяем remain_time
-                // Если remain_time больше duration, вероятно это секунды
-                if (remain_time > duration) {
-                    // remain_time в секундах, конвертируем в минуты
-                    remain_time = Math.floor(remain_time / 60);
-                } else if (remain_time > 1440) {
-                    // remain_time слишком большое для минут, вероятно секунды
-                    remain_time = Math.floor(remain_time / 60);
-                }
+            }
+            if (remain_time > 1440) {
+                remain_time = remain_time / 60; // Сохраняем дробную часть для секунд
             }
             
             this.dryerStatus = {
                 status: dryer.status || 'stop',
                 target_temp: dryer.target_temp || 0,
-                duration: duration,
-                remain_time: remain_time
+                duration: Math.floor(duration), // Целое число минут
+                remain_time: remain_time // Может быть дробным (минуты.секунды)
             };
             
             // Обновляем слоты
@@ -489,6 +482,24 @@ createApp({
                 return `${hours}ч ${mins}м`;
             }
             return `${mins} мин`;
+        },
+        
+        formatRemainingTime(minutes) {
+            // Форматирует оставшееся время сушки в формате "119м 59с"
+            // minutes может быть дробным числом (119.983 = 119 минут 59 секунд)
+            if (!minutes || minutes <= 0) return '0м 0с';
+            
+            const totalMinutes = Math.floor(minutes);
+            const fractionalPart = minutes - totalMinutes;
+            const seconds = Math.round(fractionalPart * 60);
+            
+            if (totalMinutes > 0) {
+                if (seconds > 0) {
+                    return `${totalMinutes}м ${seconds}с`;
+                }
+                return `${totalMinutes}м`;
+            }
+            return `${seconds}с`;
         },
         
         showNotification(message, type = 'info') {

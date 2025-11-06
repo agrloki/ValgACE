@@ -70,7 +70,7 @@
                         </div>
                         <div class="info-row" v-if="dryerStatus.status === 'drying'">
                             <span class="label">Осталось времени:</span>
-                            <span class="value">{{ formatTime(dryerStatus.remain_time) }}</span>
+                            <span class="value">{{ formatRemainingTime(dryerStatus.remain_time) }}</span>
                         </div>
                     </div>
                     <div class="dryer-controls">

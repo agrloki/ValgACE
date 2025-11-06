@@ -268,26 +268,20 @@ class ValgAce:
         if isinstance(dryer_data, dict):
             dryer_normalized = dryer_data.copy()
             
-            # Определяем единицы измерения по duration
-            # Если duration > 1440 (24 часа в минутах), вероятно это секунды
+            # По протоколу duration и remain_time должны быть в минутах
+            # Но устройство может отправлять в секундах, проверяем
             duration_raw = dryer_normalized.get('duration', 0)
+            remain_time_raw = dryer_normalized.get('remain_time', 0)
+            
+            # Если duration > 1440 минут (24 часа), вероятно это секунды
             if duration_raw > 1440:
-                # Вероятно в секундах, конвертируем в минуты
-                dryer_normalized['duration'] = duration_raw // 60
-                # remain_time также в секундах
-                if 'remain_time' in dryer_normalized:
-                    remain_time_raw = dryer_normalized['remain_time']
-                    dryer_normalized['remain_time'] = remain_time_raw // 60
-            elif duration_raw > 0:
-                # duration в минутах, проверяем remain_time
-                remain_time_raw = dryer_normalized.get('remain_time', 0)
-                # Если remain_time больше duration, вероятно это секунды
-                if remain_time_raw > duration_raw:
-                    # remain_time в секундах, конвертируем в минуты
-                    dryer_normalized['remain_time'] = remain_time_raw // 60
-                elif remain_time_raw > 1440:
-                    # remain_time слишком большое для минут, вероятно секунды
-                    dryer_normalized['remain_time'] = remain_time_raw // 60
+                dryer_normalized['duration'] = duration_raw / 60  # Сохраняем дробную часть
+                if remain_time_raw > 0:
+                    dryer_normalized['remain_time'] = remain_time_raw / 60  # Сохраняем дробную часть
+            elif remain_time_raw > 1440:
+                # duration в минутах, но remain_time в секундах
+                dryer_normalized['remain_time'] = remain_time_raw / 60  # Сохраняем дробную часть
+            # Иначе оставляем как есть (уже в минутах)
         else:
             dryer_normalized = {}
         
