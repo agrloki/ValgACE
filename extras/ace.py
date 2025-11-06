@@ -260,6 +260,26 @@ class ValgAce:
         """Возвращает статус для Moonraker API через query_objects"""
         # Klipper автоматически вызывает этот метод при запросе через query_objects
         # Moonraker автоматически оборачивает результат в ключ с именем модуля ('ace')
+        
+        # Получаем данные о сушилке
+        dryer_data = self._info.get('dryer', {}) or self._info.get('dryer_status', {})
+        
+        # Нормализуем время: конвертируем секунды в минуты если нужно
+        if isinstance(dryer_data, dict):
+            dryer_normalized = dryer_data.copy()
+            # remain_time может быть в секундах
+            if 'remain_time' in dryer_normalized:
+                remain_time = dryer_normalized['remain_time']
+                if remain_time > 1000:  # Вероятно в секундах
+                    dryer_normalized['remain_time'] = remain_time // 60
+            # duration может быть в секундах
+            if 'duration' in dryer_normalized:
+                duration = dryer_normalized['duration']
+                if duration > 1000:  # Вероятно в секундах
+                    dryer_normalized['duration'] = duration // 60
+        else:
+            dryer_normalized = {}
+        
         return {
             'status': self._info.get('status', 'unknown'),
             'model': self._info.get('model', ''),
@@ -271,8 +291,8 @@ class ValgAce:
             'feed_assist_count': self._info.get('feed_assist_count', 0),
             'cont_assist_time': self._info.get('cont_assist_time', 0.0),
             'feed_assist_slot': self._feed_assist_index,  # Индекс слота с активным feed assist (-1 = выключен)
-            'dryer': self._info.get('dryer', {}) or self._info.get('dryer_status', {}),
-            'dryer_status': self._info.get('dryer', {}) or self._info.get('dryer_status', {}),
+            'dryer': dryer_normalized,
+            'dryer_status': dryer_normalized,
             'slots': self._info.get('slots', [])
         }
 

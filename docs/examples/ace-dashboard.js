@@ -181,11 +181,23 @@ createApp({
             
             // Обновляем статус сушилки
             const dryer = data.dryer || data.dryer_status || {};
+            // remain_time может приходить в секундах, конвертируем в минуты если > 1000
+            let remain_time = dryer.remain_time || 0;
+            if (remain_time > 1000) {
+                // Вероятно в секундах, конвертируем в минуты
+                remain_time = Math.floor(remain_time / 60);
+            }
+            // duration также может быть в секундах
+            let duration = dryer.duration || 0;
+            if (duration > 1000) {
+                // Вероятно в секундах, конвертируем в минуты
+                duration = Math.floor(duration / 60);
+            }
             this.dryerStatus = {
                 status: dryer.status || 'stop',
                 target_temp: dryer.target_temp || 0,
-                duration: dryer.duration || 0,
-                remain_time: dryer.remain_time || 0
+                duration: duration,
+                remain_time: remain_time
             };
             
             // Обновляем слоты
