@@ -614,12 +614,17 @@ class ValgAce:
                 output.append(f"Duration: {duration} minutes")
                 remain_time = dryer.get('remain_time', 0)
                 
+                # ОТЛАДКА: Выводим сырое значение
+                remain_time_raw = dryer.get('remain_time', 0)
+                output.append(f"Remaining Time (RAW): {remain_time_raw}")
+                
                 # Определяем единицы измерения remain_time
                 # Если remain_time > 1000, это точно секунды (сушка не длится больше 16 часов)
                 # Или если remain_time значительно больше duration
                 if remain_time > 1000 or (duration > 0 and remain_time > duration * 1.5):
                     # Вероятно в секундах, конвертируем в минуты
                     remain_time = remain_time / 60  # Сохраняем дробную часть
+                    output.append(f"Remaining Time (after conversion): {remain_time}")
                 
                 if remain_time > 0:
                     # Форматируем как "119m 54s"
