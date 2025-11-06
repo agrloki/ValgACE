@@ -117,7 +117,8 @@ ACE_DEBUG METHOD=get_info
 - **[Справочник команд](docs/COMMANDS.md)** - все доступные команды G-code
 - **[Конфигурация](docs/CONFIGURATION.md)** - настройка параметров
 - **[Решение проблем](docs/TROUBLESHOOTING.md)** - типичные проблемы и решения
-- **[Протокол](docs/Protocol.md)** - техническая документация протокола
+- **[Протокол](docs/Protocol.md)** - техническая документация протокола (English)
+- **[Протокол (русский)](docs/Protocol_ru.md)** - техническая документация протокола
 
 **English Documentation:**
 - **[Installation](docs/en/INSTALLATION.md)** - detailed installation guide
