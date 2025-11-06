@@ -101,10 +101,6 @@ class ValgAce:
         # Register events
         self._register_handlers()
         self._register_gcode_commands()
-        
-        # Регистрация статуса для Moonraker
-        # Register status for Moonraker
-        self.printer.register_status_handler(self._get_status)
 
         # Подключение при запуске
         # Connect on startup
@@ -260,23 +256,23 @@ class ValgAce:
     def _handle_disconnect(self):
         self._disconnect()
 
-    def _get_status(self, eventtime):
-        """Возвращает статус для Moonraker API"""
+    def get_status(self, eventtime):
+        """Возвращает статус для Moonraker API через query_objects"""
+        # Klipper автоматически вызывает этот метод при запросе через query_objects
+        # Moonraker автоматически оборачивает результат в ключ с именем модуля ('ace')
         return {
-            'ace': {
-                'status': self._info.get('status', 'unknown'),
-                'model': self._info.get('model', ''),
-                'firmware': self._info.get('firmware', ''),
-                'boot_firmware': self._info.get('boot_firmware', ''),
-                'temp': self._info.get('temp', 0),
-                'fan_speed': self._info.get('fan_speed', 0),
-                'enable_rfid': self._info.get('enable_rfid', 0),
-                'feed_assist_count': self._info.get('feed_assist_count', 0),
-                'cont_assist_time': self._info.get('cont_assist_time', 0.0),
-                'dryer': self._info.get('dryer', {}) or self._info.get('dryer_status', {}),
-                'dryer_status': self._info.get('dryer', {}) or self._info.get('dryer_status', {}),
-                'slots': self._info.get('slots', [])
-            }
+            'status': self._info.get('status', 'unknown'),
+            'model': self._info.get('model', ''),
+            'firmware': self._info.get('firmware', ''),
+            'boot_firmware': self._info.get('boot_firmware', ''),
+            'temp': self._info.get('temp', 0),
+            'fan_speed': self._info.get('fan_speed', 0),
+            'enable_rfid': self._info.get('enable_rfid', 0),
+            'feed_assist_count': self._info.get('feed_assist_count', 0),
+            'cont_assist_time': self._info.get('cont_assist_time', 0.0),
+            'dryer': self._info.get('dryer', {}) or self._info.get('dryer_status', {}),
+            'dryer_status': self._info.get('dryer', {}) or self._info.get('dryer_status', {}),
+            'slots': self._info.get('slots', [])
         }
 
     def _calc_crc(self, buffer: bytes) -> int:
