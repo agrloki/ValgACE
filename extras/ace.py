@@ -156,6 +156,7 @@ class ValgAce:
             ('ACE_STOP_RETRACT', self.cmd_ACE_STOP_RETRACT, "Stop retract filament"),
             ('ACE_CHANGE_TOOL', self.cmd_ACE_CHANGE_TOOL, "Change tool"),
             ('ACE_INFINITY_SPOOL', self.cmd_ACE_INFINITY_SPOOL, "Change tool when current spool is empty"),
+            ('ACE_SET_INFINITY_SPOOL_ORDER', self.cmd_ACE_SET_INFINITY_SPOOL_ORDER, "Set infinity spool slot order"),
             ('ACE_FILAMENT_INFO', self.cmd_ACE_FILAMENT_INFO, "Show filament info"),
         ]
         for name, func, desc in commands:
@@ -948,10 +949,56 @@ class ValgAce:
             # Start monitoring parking completion
             self.reactor.register_timer(check_parking_completion, self.reactor.monotonic() + 0.5)
 
+    def cmd_ACE_SET_INFINITY_SPOOL_ORDER(self, gcmd):
+        """Set the order of slots for infinity spool mode"""
+        order_str = gcmd.get('ORDER', '')
+        
+        if not order_str:
+            gcmd.respond_raw("Error: ORDER parameter is required")
+            gcmd.respond_info("Usage: ACE_SET_INFINITY_SPOOL_ORDER ORDER=\"0,1,2,3\"")
+            gcmd.respond_info("Use 'none' for empty slots, e.g.: ORDER=\"0,1,none,3\"")
+            return
+        
+        # Parse order string
+        try:
+            order_list = [item.strip().lower() for item in order_str.split(',')]
+            
+            # Validate order
+            if len(order_list) != 4:
+                gcmd.respond_raw(f"Error: Order must contain exactly 4 items, got {len(order_list)}")
+                return
+            
+            # Validate each item
+            valid_slots = []
+            for i, item in enumerate(order_list):
+                if item == 'none':
+                    valid_slots.append('none')
+                else:
+                    try:
+                        slot_num = int(item)
+                        if slot_num < 0 or slot_num > 3:
+                            gcmd.respond_raw(f"Error: Slot number {slot_num} at position {i+1} is out of range (0-3)")
+                            return
+                        valid_slots.append(slot_num)
+                    except ValueError:
+                        gcmd.respond_raw(f"Error: Invalid value '{item}' at position {i+1}. Use slot number (0-3) or 'none'")
+                        return
+            
+            # Save order as comma-separated string
+            order_str_saved = ','.join(str(s) if s != 'none' else 'none' for s in valid_slots)
+            self._save_variable('ace_infsp_order', order_str_saved)
+            self._save_variable('ace_infsp_position', 0)  # Reset position to start
+            
+            gcmd.respond_info(f"Infinity spool order set: {order_str_saved}")
+            gcmd.respond_info(f"Order: {valid_slots}")
+            
+        except Exception as e:
+            self.logger.error(f"Error setting infinity spool order: {str(e)}")
+            gcmd.respond_raw(f"Error: {str(e)}")
+
     def cmd_ACE_INFINITY_SPOOL(self, gcmd):
         was = self.variables.get('ace_current_index', -1)
         infsp_status = self.infinity_spool_mode
-        infsp_count = self.variables.get('ace_infsp_counter', 1)
         
         if not infsp_status:
             gcmd.respond_info(f"ACE_INFINITY_SPOOL disabled")
@@ -960,19 +1007,86 @@ class ValgAce:
         if was == -1:
             gcmd.respond_info(f"Tool is not set")
             return
-        if infsp_count >= 4:
-            gcmd.respond_info(f"No more ready spool")
+        
+        # Get order from variables
+        order_str = self.variables.get('ace_infsp_order', '')
+        if not order_str:
+            gcmd.respond_raw("Error: Infinity spool order not set. Use ACE_SET_INFINITY_SPOOL_ORDER ORDER=\"...\" first")
+            gcmd.respond_info("Example: ACE_SET_INFINITY_SPOOL_ORDER ORDER=\"0,1,2,3\"")
             return
         
-        tool = infsp_count
+        # Parse order
+        try:
+            order_list = []
+            for item in order_str.split(','):
+                item = item.strip().lower()
+                if item == 'none':
+                    order_list.append('none')
+                else:
+                    order_list.append(int(item))
+        except Exception as e:
+            self.logger.error(f"Error parsing infinity spool order: {str(e)}")
+            gcmd.respond_raw(f"Error: Invalid order format: {order_str}")
+            return
+        
+        # Get current position in order (if set, otherwise find current slot)
+        saved_position = self.variables.get('ace_infsp_position', -1)
+        
+        # Find current slot position in order
+        current_order_index = -1
+        
+        # If we have a saved position, use it (more reliable)
+        if saved_position >= 0 and saved_position < len(order_list):
+            # Verify that saved position matches current slot
+            if order_list[saved_position] != 'none' and order_list[saved_position] == was:
+                current_order_index = saved_position
+            else:
+                # Saved position doesn't match, find current slot
+                self.logger.warning(f"Saved position {saved_position} doesn't match current slot {was}, searching...")
+                for i, slot in enumerate(order_list):
+                    if slot != 'none' and slot == was:
+                        current_order_index = i
+                        break
+        else:
+            # No saved position, find current slot in order
+            for i, slot in enumerate(order_list):
+                if slot != 'none' and slot == was:
+                    current_order_index = i
+                    break
+        
+        if current_order_index == -1:
+            # Current slot not found in order, start from beginning
+            self.logger.warning(f"Current slot {was} not found in order, starting from beginning")
+            current_order_index = -1
+        
+        # Find next valid slot (skip 'none'), cycling through order
+        tool = None
+        new_position = None
+        
+        # Search through entire order (max one full cycle)
+        for i in range(len(order_list)):
+            next_index = (current_order_index + 1 + i) % len(order_list)
+            next_slot = order_list[next_index]
+            
+            if next_slot == 'none':
+                continue  # Skip empty slots
+            
+            # Check if slot is ready
+            if self._info['slots'][next_slot]['status'] == 'ready':
+                tool = next_slot
+                new_position = next_index
+                break
+        
+        if tool is None:
+            gcmd.respond_raw("Error: No more ready slots available in order")
+            self.logger.error("INFINITY_SPOOL: No ready slots found in order")
+            return
         
         # CRITICAL: Check if new slot is ready before proceeding
         if self._info['slots'][tool]['status'] != 'ready':
             gcmd.respond_raw(f"ACE Error: Slot {tool} is not ready (status: {self._info['slots'][tool]['status']})")
             self.logger.error(f"INFINITY_SPOOL aborted: slot {tool} not ready")
             return
-        
-        new_infsp_count = infsp_count + 1
         
         self.logger.info(f"INFINITY_SPOOL: changing from {was} to {tool} (no retract - filament exhausted)")
         
@@ -990,13 +1104,13 @@ class ValgAce:
             parking_success['completed'] = True
             
             self.logger.info(f"INFINITY_SPOOL: parking complete for slot {tool}, executing post-processing")
-            self.gcode.run_script_from_command(f'__ACE_POST_INFINITYSPOOL')
+            self.gcode.run_script_from_command(f'_ACE_POST_INFINITYSPOOL')
             if self.toolhead:
                 self.toolhead.wait_moves()
             
             # Save variables only on success
             self._save_variable('ace_current_index', tool)
-            self._save_variable('ace_infsp_counter', new_infsp_count)
+            self._save_variable('ace_infsp_position', new_position)
             gcmd.respond_info(f"Tool changed from {was} to {tool}")
         
         def on_park_error():

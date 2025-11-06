@@ -287,3 +287,43 @@ gcode:
 [gcode_macro T3]
 gcode:
     ACE_CHANGE_TOOL TOOL=3
+
+# Infinity Spool Macros
+# Макросы для режима бесконечной катушки
+
+[gcode_macro SET_INFINITY_SPOOL_ORDER]
+gcode:
+    # Установить порядок смены слотов для режима infinity spool
+    # Set slot order for infinity spool mode
+    # Использование / Usage: SET_INFINITY_SPOOL_ORDER ORDER="0,1,2,3"
+    # Для пустых слотов используйте 'none' / Use 'none' for empty slots: ORDER="0,1,none,3"
+    {% if params.ORDER is defined %}
+        {% set order = params.ORDER|string %}
+        ACE_SET_INFINITY_SPOOL_ORDER ORDER={order}
+    {% else %}
+        {action_respond_info("ORDER parameter is required")}
+        RESPOND TYPE=error MSG="Error: ORDER parameter is required"
+        RESPOND MSG="Usage: SET_INFINITY_SPOOL_ORDER ORDER=\"0,1,2,3\""
+        RESPOND MSG="Use 'none' for empty slots: ORDER=\"0,1,none,3\""
+    {% endif %}
+
+[gcode_macro RESET_INFINITY_SPOOL]
+gcode:
+    # Сбросить позицию в порядке infinity spool (начать с начала)
+    # Reset infinity spool position (start from beginning)
+    SAVE_VARIABLE VARIABLE=ace_infsp_position VALUE=0
+    {action_respond_info("Infinity spool position reset to start")}
+
+[gcode_macro _ACE_PRE_INFINITYSPOOL]
+gcode:
+    # Макрос выполняется перед сменой катушки в режиме infinity spool
+    # Macro executed before spool change in infinity spool mode
+    # No-op by default, customize as needed
+    M117 Infinity Spool: Changing spool
+
+[gcode_macro _ACE_POST_INFINITYSPOOL]
+gcode:
+    # Макрос выполняется после смены катушки в режиме infinity spool
+    # Macro executed after spool change in infinity spool mode
+    # No-op by default, customize as needed
+    M117 Infinity Spool: Spool changed
