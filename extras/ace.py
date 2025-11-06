@@ -423,6 +423,9 @@ class ValgAce:
                     self.logger.info(f"Callback error: {str(e)}")
         if 'result' in response and isinstance(response['result'], dict):
             result = response['result']
+            # Нормализация данных о сушилке: если приходит dryer_status, сохраняем также как dryer
+            if 'dryer_status' in result and isinstance(result['dryer_status'], dict):
+                result['dryer'] = result['dryer_status']
             self._info.update(result)
             if self._park_in_progress:
                 current_status = result.get('status', 'unknown')
@@ -528,6 +531,28 @@ class ValgAce:
 
     def cmd_ACE_STATUS(self, gcmd):
         try:
+            # Запрашиваем свежий статус перед выводом
+            # Request fresh status before output
+            def status_callback(response):
+                if 'result' in response:
+                    result = response['result']
+                    # Нормализация данных о сушилке
+                    if 'dryer_status' in result and isinstance(result['dryer_status'], dict):
+                        result['dryer'] = result['dryer_status']
+                    self._info.update(result)
+                    # Выводим статус после обновления
+                    self._output_status(gcmd)
+            
+            # Отправляем запрос статуса
+            self.send_request({"method": "get_status"}, status_callback)
+            
+        except Exception as e:
+            self.logger.info(f"Status command error: {str(e)}")
+            gcmd.respond_raw(f"Error retrieving status: {str(e)}")
+    
+    def _output_status(self, gcmd):
+        """Вывод статуса ACE (вызывается после получения данных)"""
+        try:
             info = self._info
             output = []
             
@@ -547,14 +572,25 @@ class ValgAce:
             
             # Dryer Status
             output.append("=== Dryer ===")
-            dryer = info.get('dryer', {}) or info.get('dryer_status', {})
-            dryer_status = dryer.get('status', 'unknown')
+            # Проверяем оба ключа для совместимости
+            dryer = info.get('dryer', {})
+            if not dryer and 'dryer_status' in info:
+                dryer = info.get('dryer_status', {})
+            
+            dryer_status = dryer.get('status', 'unknown') if isinstance(dryer, dict) else 'unknown'
             output.append(f"Status: {dryer_status}")
             if dryer_status == 'drying':
                 output.append(f"Target Temperature: {dryer.get('target_temp', 0)}°C")
                 output.append(f"Current Temperature: {info.get('temp', 0)}°C")
-                output.append(f"Duration: {dryer.get('duration', 0)} minutes")
+                duration = dryer.get('duration', 0)
+                # Если duration в секундах, конвертируем в минуты
+                if duration > 1000:  # Вероятно в секундах
+                    duration = duration // 60
+                output.append(f"Duration: {duration} minutes")
                 remain_time = dryer.get('remain_time', 0)
+                # Если remain_time в секундах, конвертируем в минуты
+                if remain_time > 1000:  # Вероятно в секундах
+                    remain_time = remain_time // 60
                 if remain_time > 0:
                     hours = remain_time // 60
                     minutes = remain_time % 60
@@ -600,8 +636,8 @@ class ValgAce:
             
             gcmd.respond_info("\n".join(output))
         except Exception as e:
-            self.logger.info(f"Status command error: {str(e)}")
-            gcmd.respond_raw(f"Error retrieving status: {str(e)}")
+            self.logger.info(f"Status output error: {str(e)}")
+            gcmd.respond_raw(f"Error outputting status: {str(e)}")
 
     def cmd_ACE_DEBUG(self, gcmd):
         method = gcmd.get('METHOD')

@@ -327,3 +327,24 @@ gcode:
     # Macro executed after spool change in infinity spool mode
     # No-op by default, customize as needed
     M117 Infinity Spool: Spool changed
+
+# Temperature sensor for ACE device
+# Сенсор температуры для устройства ACE
+# This sensor reads temperature from the ACE module status
+# Этот сенсор читает температуру из статуса модуля ACE
+# NOTE: The module must be installed in klippy/extras/temperature_ace.py
+# ПРИМЕЧАНИЕ: Модуль должен быть установлен в klippy/extras/temperature_ace.py
+# First, load the temperature_ace module (registers the sensor factory)
+# Сначала загрузите модуль temperature_ace (регистрирует фабрику сенсоров)
+[temperature_ace]
+
+# Then use it as a temperature sensor
+# Затем используйте его как температурный сенсор
+[temperature_sensor ValgAce]
+sensor_type: temperature_ace
+# Optional: minimum temperature (default: 0)
+# Опционально: минимальная температура (по умолчанию: 0)
+#min_temp: 0
+# Optional: maximum temperature (default: 100)
+# Опционально: максимальная температура (по умолчанию: 100)
+#max_temp: 100

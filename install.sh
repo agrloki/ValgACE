@@ -125,6 +125,21 @@ link_extension() {
     fi
 }
 
+link_temperature_sensor() {
+    if [ ! -f "${SRCDIR}/extras/temperature_ace.py" ]; then
+        echo "[ERROR] Source file ${SRCDIR}/extras/temperature_ace.py not found"
+        exit 1
+    fi
+
+    echo -n "Linking temperature sensor to Klipper... "
+    if ln -sf "${SRCDIR}/extras/temperature_ace.py" "${KLIPPER_HOME}/klippy/extras/temperature_ace.py"; then
+        echo "[OK]"
+    else
+        echo "[FAILED]"
+        exit 1
+    fi
+}
+
 link_moonraker_component() {
     if [ ! -f "${SRCDIR}/moonraker/ace_status.py" ]; then
         echo "[ERROR] Source file ${SRCDIR}/moonraker/ace_status.py not found"
@@ -183,18 +198,34 @@ install_requirements() {
 
 uninstall() {
     echo -n "Uninstalling ValgACE... "
+    local removed=0
+    
     if [ -f "${KLIPPER_HOME}/klippy/extras/ace.py" ]; then
         if rm -f "${KLIPPER_HOME}/klippy/extras/ace.py"; then
-            echo "[OK]"
-            echo "Note: You need to manually remove:"
-            echo "1. [update_manager ValgACE] section from moonraker.conf"
-            echo "2. All ValgACE-related configurations from your printer.cfg"
+            echo "[OK] ace.py removed"
+            removed=1
         else
             echo "[FAILED]"
             exit 1
         fi
+    fi
+    
+    if [ -f "${KLIPPER_HOME}/klippy/extras/temperature_ace.py" ]; then
+        if rm -f "${KLIPPER_HOME}/klippy/extras/temperature_ace.py"; then
+            echo "[OK] temperature_ace.py removed"
+            removed=1
+        else
+            echo "[FAILED]"
+            exit 1
+        fi
+    fi
+    
+    if [ $removed -eq 0 ]; then
+        echo "[SKIPPED] (no ValgACE files found)"
     else
-        echo "[SKIPPED] (ace.py not found)"
+        echo "Note: You need to manually remove:"
+        echo "1. [update_manager ValgACE] section from moonraker.conf"
+        echo "2. All ValgACE-related configurations from your printer.cfg"
     fi
 }
 
@@ -264,6 +295,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
 else
     install_requirements
     link_extension
+    link_temperature_sensor
     link_moonraker_component
     copy_config
     add_updater
