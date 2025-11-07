@@ -96,5 +96,5 @@ For complete user guide with examples, scenarios, and integration guides, please
 
 ---
 
-*Last updated: 2024*
+*Last updated: 2025*
 

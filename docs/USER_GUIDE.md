@@ -684,5 +684,5 @@ tail -f ~/printer_data/logs/klippy.log | grep -i "ace.*debug"
 
 ---
 
-*Дата последнего обновления: 2024*
+*Дата последнего обновления: 2025*
 

@@ -56,5 +56,5 @@ For complete configuration documentation with examples and recommendations, plea
 
 ---
 
-*Last updated: 2024*
+*Last updated: 2025*
 

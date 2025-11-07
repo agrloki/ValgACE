@@ -72,5 +72,5 @@ For complete troubleshooting guide with detailed solutions and diagnostics, plea
 
 ---
 
-*Last updated: 2024*
+*Last updated: 2025*
 

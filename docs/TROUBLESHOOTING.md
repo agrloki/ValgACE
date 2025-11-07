@@ -487,5 +487,5 @@ cp ~/printer_data/config/ace.cfg ace_config_backup.txt
 
 ---
 
-*Дата последнего обновления: 2024*
+*Дата последнего обновления: 2025*
 

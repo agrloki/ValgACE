@@ -50,5 +50,5 @@ For complete command documentation with examples, parameters, and usage notes, p
 
 ---
 
-*Last updated: 2024*
+*Last updated: 2025*
 

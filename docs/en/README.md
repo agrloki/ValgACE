@@ -40,9 +40,9 @@ Welcome to the ValgACE documentation - a driver for Anycubic Color Engine Pro on
 
 ## Documentation Version
 
-Documentation is current for the module version from 2024.
+Documentation is current for the module version from 2025.
 
 ---
 
-*Last updated: 2024*
+*Last updated: 2025*
 
