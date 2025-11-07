@@ -110,6 +110,8 @@ class ValgAce:
         self._dwell_scheduled = False
         # Инициализация флага для отслеживания увеличения счетчика парковки
         self._park_count_increased = False
+        # Флаг для предотвращения рекурсивного вызова _ACE_POST_TOOLCHANGE
+        self._post_toolchange_running = False
 
     def _get_default_info(self) -> Dict[str, Any]:
         return {
@@ -898,89 +900,12 @@ class ValgAce:
         self.variables['ace_current_index'] = tool
         self._save_variable('ace_current_index', tool)
 
-        # Track completion status - must be defined before callbacks
-        toolchange_complete = {'done': False, 'error': None}
-        post_toolchange_scheduled = {'done': False}  # Flag to track if post-toolchange was scheduled
-        
-        # Shared function to complete toolchange (used in both paths)
-        def complete_toolchange_post():
-            """Execute post-toolchange and mark as complete"""
-            # Prevent recursive/multiple calls
-            if post_toolchange_scheduled['done']:
-                self.logger.warning("complete_toolchange_post called multiple times, ignoring")
-                return
-            
-            if toolchange_complete['done']:
-                self.logger.warning("complete_toolchange_post called after completion, ignoring")
-                return
-            
-            post_toolchange_scheduled['done'] = True
-            self.logger.info(f"Scheduling post-toolchange execution: FROM={was} TO={tool}")
-            
-            # Execute post-toolchange macro asynchronously via reactor callback
-            # This prevents recursion issues by running it in a separate reactor cycle
-            def execute_post_toolchange_macro(eventtime):
-                try:
-                    self.logger.info(f"Executing post-toolchange macro: FROM={was} TO={tool}")
-                    self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                    if self.toolhead:
-                        self.toolhead.wait_moves()
-                    gcmd.respond_info(f"Tool changed from {was} to {tool}")
-                    self.logger.info(f"Post-toolchange complete, marking toolchange as done")
-                    toolchange_complete['done'] = True
-                except Exception as e:
-                    error_msg = f"Post-toolchange error: {str(e)}"
-                    self.logger.error(f"Error in post-toolchange macro: {error_msg}")
-                    # Still mark as done to unblock waiting, but record error
-                    toolchange_complete['done'] = True
-                    toolchange_complete['error'] = error_msg
-                return self.reactor.NEVER  # Run once
-            
-            # Use register_callback for immediate execution in next reactor cycle
-            # This is more reliable than timer for immediate execution
-            self.reactor.register_callback(lambda: execute_post_toolchange_macro(self.reactor.monotonic()))
-            self.logger.info(f"Post-toolchange callback registered for execution")
-        
-        def on_toolchange_complete():
-            """Called when toolchange is fully complete"""
-            if toolchange_complete['done']:
-                self.logger.warning("on_toolchange_complete called multiple times")
-                return
-            toolchange_complete['done'] = True
-            self.logger.info(f"Toolchange complete: FROM={was} TO={tool}")
-        
-        def on_toolchange_error(error_msg):
-            """Called when toolchange fails"""
-            if toolchange_complete['done']:
-                self.logger.warning(f"on_toolchange_error called after completion: {error_msg}")
-                return
-            toolchange_complete['done'] = True
-            toolchange_complete['error'] = error_msg
-            self.logger.error(f"Toolchange failed: {error_msg}")
-        
+        def callback(response):
+            if response.get('code', 0) != 0:
+                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
+
         if was != -1:
             # Retract current tool first
-            def on_retract_complete(response):
-                if response.get('code', 0) != 0:
-                    error_msg = response.get('msg', 'Unknown error')
-                    gcmd.respond_raw(f"ACE Error: {error_msg}")
-                    self.logger.error(f"Retract failed for slot {was}")
-                    on_toolchange_error(f"Retract failed: {error_msg}")
-                    return
-                
-                # Calculate retract delay
-                retract_delay = (self.toolchange_retract_length / self.retract_speed) + 1.0
-                self.logger.info(f"Retract completed for slot {was}, waiting {retract_delay:.1f}s for completion")
-                
-                def after_retract_delay():
-                    self.logger.info(f"Retract delay complete, waiting for slot {was} to be ready")
-                    # Start waiting for slot to be ready after retraction
-                    # Pass complete_toolchange_post to avoid recursive calls
-                    self._wait_for_slot_ready_async(was, lambda: self._on_slot_ready_callback(tool, was, gcmd, complete_toolchange_post, on_toolchange_error), self.reactor.monotonic())
-                
-                # Wait for retract to physically complete
-                self.dwell(retract_delay, after_retract_delay)
-            
             self.send_request({
                 "method": "unwind_filament",
                 "params": {
@@ -988,160 +913,85 @@ class ValgAce:
                     "length": self.toolchange_retract_length,
                     "speed": self.retract_speed
                 }
-            }, on_retract_complete)
+            }, callback)
+            
+            # Wait for retract to physically complete
+            retract_time = (self.toolchange_retract_length / self.retract_speed) + 1.0
+            self.logger.info(f"Waiting {retract_time:.1f}s for retract to complete")
+            if self.toolhead:
+                self.toolhead.dwell(retract_time)
+            
+            # Wait for slot to be ready (status changes to 'ready' after retraction)
+            self.logger.info(f"Waiting for slot {was} to be ready")
+            timeout = self.reactor.monotonic() + 10.0  # 10 second timeout
+            while self._info['slots'][was]['status'] != 'ready':
+                if self.reactor.monotonic() > timeout:
+                    gcmd.respond_raw(f"ACE Error: Timeout waiting for slot {was} to be ready")
+                    return
+                if self.toolhead:
+                    self.toolhead.dwell(1.0)
+            
+            self.logger.info(f"Slot {was} is ready, parking new tool {tool}")
+            
+            if tool != -1:
+                # Park new tool to toolhead
+                self._park_to_toolhead(tool)
+                
+                # Wait for parking to complete (check self._park_in_progress)
+                self.logger.info(f"Waiting for parking to complete (slot {tool})")
+                timeout = self.reactor.monotonic() + 30.0  # 30 second timeout for parking
+                while self._park_in_progress:
+                    if self._park_error:
+                        gcmd.respond_raw(f"ACE Error: Parking failed for slot {tool}")
+                        return
+                    if self.reactor.monotonic() > timeout:
+                        gcmd.respond_raw(f"ACE Error: Timeout waiting for parking to complete")
+                        return
+                    if self.toolhead:
+                        self.toolhead.dwell(1.0)
+                
+                self.logger.info(f"Parking completed, executing post-toolchange")
+                if self.toolhead:
+                    self.toolhead.wait_moves()
+                
+                # Execute post-toolchange macro
+                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                if self.toolhead:
+                    self.toolhead.wait_moves()
+                gcmd.respond_info(f"Tool changed from {was} to {tool}")
+            else:
+                # Unloading only, no new tool
+                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                if self.toolhead:
+                    self.toolhead.wait_moves()
+                gcmd.respond_info(f"Tool changed from {was} to {tool}")
         else:
             # No previous tool, just park the new one
-            # Use direct function call instead of G-code command
-            self.logger.info(f"Starting toolchange: was=-1, tool={tool}, park_in_progress={self._park_in_progress}")
+            self.logger.info(f"Starting parking for slot {tool} (no previous tool)")
             self._park_to_toolhead(tool)
-            self.logger.info(f"After _park_to_toolhead: park_in_progress={self._park_in_progress}, park_error={self._park_error}")
-
-           
-            def after_park_delay():
-                try:
-                    self.logger.info(f"Parking delay complete for slot {tool}, executing post-toolchange")
-                    complete_toolchange_post()
-                except Exception as e:
-                    error_msg = f"Error in after_park_delay: {str(e)}"
-                    self.logger.error(error_msg)
-                    on_toolchange_error(error_msg)
             
-            # Monitor parking completion with blocking wait
-            parking_check_count = [0]  # Use list to allow modification in nested function
-            
-            def check_parking_completion(eventtime):
-                parking_check_count[0] += 1
-                
-                # Check if already complete
-                if toolchange_complete['done']:
-                    self.logger.info(f"Parking completion check: already done (check #{parking_check_count[0]})")
-                    return self.reactor.NEVER
-                
-                # Log status periodically for debugging
-                if parking_check_count[0] % 10 == 0:
-                    self.logger.info(f"Parking check #{parking_check_count[0]}: park_in_progress={self._park_in_progress}, park_error={self._park_error}, park_index={self._park_index}")
-                
-                # Check if parking failed
+            # Wait for parking to complete (check self._park_in_progress)
+            self.logger.info(f"Waiting for parking to complete (slot {tool})")
+            timeout = self.reactor.monotonic() + 30.0  # 30 second timeout for parking
+            while self._park_in_progress:
                 if self._park_error:
-                    error_msg = f"Parking failed for slot {tool}"
-                    self.logger.error(error_msg)
-                    gcmd.respond_raw(f"ACE Error: {error_msg}")
-                    on_toolchange_error(error_msg)
-                    return self.reactor.NEVER
-                
-                # Check if parking completed (changed from True to False)
-                if not self._park_in_progress:
-                    self.logger.info(f"Parking completed for slot {tool} (park_in_progress=False), executing post-toolchange (check #{parking_check_count[0]})")
-                    try:
-                        after_park_delay()
-                    except Exception as e:
-                        error_msg = f"Error in after_park_delay: {str(e)}"
-                        self.logger.error(error_msg)
-                        on_toolchange_error(error_msg)
-                    return self.reactor.NEVER
-                
-                # Continue checking every 0.5 seconds
-                return eventtime + 0.5
+                    gcmd.respond_raw(f"ACE Error: Parking failed for slot {tool}")
+                    return
+                if self.reactor.monotonic() > timeout:
+                    gcmd.respond_raw(f"ACE Error: Timeout waiting for parking to complete")
+                    return
+                if self.toolhead:
+                    self.toolhead.dwell(1.0)
             
-            # Start monitoring parking completion immediately
-            # Check if parking failed immediately
-            if self._park_error:
-                error_msg = f"Parking failed immediately for slot {tool}"
-                self.logger.error(error_msg)
-                gcmd.respond_raw(f"ACE Error: {error_msg}")
-                on_toolchange_error(error_msg)
-            # Check if parking is already complete (should not happen, but handle edge case)
-            elif not self._park_in_progress:
-                self.logger.warning(f"Parking already complete before starting timer? park_in_progress={self._park_in_progress}, calling after_park_delay directly")
-                try:
-                    after_park_delay()
-                except Exception as e:
-                    error_msg = f"Error in after_park_delay (immediate): {str(e)}"
-                    self.logger.error(error_msg)
-                    on_toolchange_error(error_msg)
-            else:
-                # Normal case: parking in progress, start monitoring timer
-                self.reactor.register_timer(check_parking_completion, self.reactor.monotonic() + 0.5)
-        
-        # Block until toolchange is complete
-        # In Klipper, we need to use toolhead.dwell() to block G-code execution
-        # while allowing reactor to process async events
-        if not self.toolhead:
-            raise self.gcode.error("Toolhead not initialized - cannot wait for toolchange completion")
-        
-        self.logger.info(f"Starting blocking wait for toolchange completion... (was={was}, tool={tool})")
-        start_wait = self.reactor.monotonic()
-        max_wait_time = 120.0  # Maximum 120 seconds to wait
-        last_park_status = self._park_in_progress  # Track parking status changes
-        
-        # Block G-code execution with periodic status checks
-        # Use toolhead.dwell() which allows reactor to process async events
-        check_count = 0
-        while not toolchange_complete['done']:
-            elapsed = self.reactor.monotonic() - start_wait
+            self.logger.info(f"Parking completed, executing post-toolchange")
+            if self.toolhead:
+                self.toolhead.wait_moves()
             
-            # Check for parking status changes (directly in blocking loop)
-            # This handles cases where parking completes but timer hasn't fired yet
-            # This is a fallback mechanism in case the timer doesn't fire
-            current_park_status = self._park_in_progress
-            if last_park_status and not current_park_status:
-                # Parking status changed from True to False - parking completed
-                self.logger.info(f"Parking status changed to False in blocking loop (park_index: {self._park_index}, tool: {tool})")
-                last_park_status = current_park_status
-                
-                # If this is for our toolchange and completion not set, trigger completion manually
-                # This is a fallback in case the timer doesn't fire
-                if not toolchange_complete['done']:
-                    if was == -1:
-                        # No previous tool - parking is for new tool
-                        if self._park_index == tool or self._park_index == -1:
-                            self.logger.warning(f"Parking completed but toolchange_complete not set! Triggering completion manually (park_index: {self._park_index}, tool: {tool})")
-                            # Manually trigger completion as fallback
-                            try:
-                                # Wait a tiny bit to ensure _complete_parking() has finished
-                                self.toolhead.dwell(0.2)
-                                # Now execute post-toolchange
-                                complete_toolchange_post()
-                            except Exception as e:
-                                error_msg = f"Error in manual completion trigger: {str(e)}"
-                                self.logger.error(error_msg)
-                                on_toolchange_error(error_msg)
-                    elif was != -1 and tool != -1:
-                        # Previous tool exists - this is handled in _on_slot_ready_callback
-                        # Just log for debugging
-                        self.logger.debug(f"Parking completed for toolchange (was={was}, tool={tool}), completion should be handled by callback")
-            elif last_park_status != current_park_status:
-                last_park_status = current_park_status
-            
-            # Log status every second for debugging
-            check_count += 1
-            if check_count % 10 == 0:
-                self.logger.info(f"Waiting for toolchange... elapsed: {elapsed:.1f}s, park_in_progress: {self._park_in_progress}, park_error: {self._park_error}, done: {toolchange_complete['done']}, scheduled: {post_toolchange_scheduled['done']}, check_count: {check_count}")
-            
-            # Check for timeout
-            if elapsed > max_wait_time:
-                error_msg = f"Toolchange timeout after {elapsed:.1f}s (park_in_progress: {self._park_in_progress}, park_error: {self._park_error}, scheduled: {post_toolchange_scheduled['done']}, check_count: {check_count})"
-                self.logger.error(error_msg)
-                # If post-toolchange was scheduled but not completed, the callback may have failed
-                if post_toolchange_scheduled['done'] and not toolchange_complete['done']:
-                    self.logger.error("Post-toolchange callback was registered but never executed, macro may have failed silently")
-                
-                gcmd.respond_raw(f"ACE Error: {error_msg}")
-                if not toolchange_complete['done']:
-                    on_toolchange_error(error_msg)
-                break
-            
-            # Small dwell blocks G-code but allows reactor to process async events
-            # This is the key: toolhead.dwell() yields to reactor for async processing
-            # The reactor will process timers and callbacks during this dwell
-            # Use slightly longer dwell to ensure callbacks have time to execute
-            self.toolhead.dwell(0.2)
-        
-        self.logger.info(f"Blocking wait complete. done: {toolchange_complete['done']}, error: {toolchange_complete['error']}, final_park_in_progress: {self._park_in_progress}")
-        
-        # Check for errors
-        if toolchange_complete['error']:
-            raise self.gcode.error(f"Toolchange failed: {toolchange_complete['error']}")
+            # Execute post-toolchange macro
+            self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+            if self.toolhead:
+                self.toolhead.wait_moves()
+            gcmd.respond_info(f"Tool changed from {was} to {tool}")
 
     def _wait_for_slot_ready_async(self, index, on_ready, event_time):
         """Asynchronous waiting for slot to be ready"""
@@ -1150,7 +1000,13 @@ class ValgAce:
         
         if current_status == 'ready':
             self.logger.info(f"Slot {index} already ready, proceeding immediately")
-            on_ready()
+            # Call callback without arguments to be safe
+            try:
+                if callable(on_ready):
+                    on_ready()
+            except TypeError:
+                # If callback expects arguments, try calling without them (shouldn't happen)
+                self.logger.warning(f"Callback on_ready raised TypeError, trying alternative call")
             return
         
         # Register timer to check status
@@ -1164,7 +1020,13 @@ class ValgAce:
             
             if current_status == 'ready':
                 self.logger.info(f"Slot {index} is now ready after {elapsed:.1f}s")
-                on_ready()
+                # Call callback without arguments - it's designed to not need eventtime
+                try:
+                    if callable(on_ready):
+                        on_ready()
+                except TypeError as e:
+                    # If callback expects arguments, this is an error in our code
+                    self.logger.error(f"Callback on_ready raised TypeError: {e}")
                 return self.reactor.NEVER
             
             # Timeout check
