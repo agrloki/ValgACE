@@ -623,11 +623,8 @@ class ValgAce:
                 
                 # remain_time всегда приходит в секундах - конвертируем в минуты
                 remain_time_raw = dryer.get('remain_time', 0)
-                output.append(f"Remaining Time (RAW): {remain_time_raw} seconds")
-                
                 # Конвертируем секунды в минуты (с сохранением дробной части для секунд)
                 remain_time = remain_time_raw / 60 if remain_time_raw > 0 else 0
-                output.append(f"Remaining Time (after conversion): {remain_time} minutes")
                 
                 if remain_time > 0:
                     # Форматируем как "119m 54s"
