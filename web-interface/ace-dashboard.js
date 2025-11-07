@@ -5,6 +5,249 @@ const { createApp } = Vue;
 createApp({
     data() {
         return {
+            currentLanguage: 'ru',
+            translations: {
+                ru: {
+                    header: {
+                        title: '🎨 ValgACE Control Panel',
+                        connectionLabel: 'Статус',
+                        connected: 'Подключено',
+                        disconnected: 'Отключено'
+                    },
+                    cards: {
+                        deviceStatus: 'Статус устройства',
+                        dryer: 'Управление сушкой',
+                        slots: 'Слоты филамента',
+                        quickActions: 'Быстрые действия'
+                    },
+                    deviceInfo: {
+                        model: 'Модель',
+                        firmware: 'Прошивка',
+                        status: 'Статус',
+                        temp: 'Температура',
+                        fan: 'Вентилятор',
+                        rfid: 'RFID',
+                        rfidOn: 'Включен',
+                        rfidOff: 'Выключен'
+                    },
+                    dryer: {
+                        status: 'Статус',
+                        targetTemp: 'Целевая температура',
+                        duration: 'Заданное время',
+                        remainingTime: 'Осталось времени',
+                        currentTemperature: 'Текущая температура',
+                        inputs: {
+                            temp: 'Температура (°C):',
+                            duration: 'Длительность (мин):'
+                        },
+                        buttons: {
+                            start: 'Запустить сушку',
+                            stop: 'Остановить'
+                        }
+                    },
+                    slots: {
+                        slot: 'Слот',
+                        status: 'Статус',
+                        type: 'Тип',
+                        sku: 'SKU',
+                        rfid: 'RFID'
+                    },
+                    quickActions: {
+                        unload: 'Выгрузить филамент',
+                        stopAssist: 'Стоп ассист!',
+                        refresh: 'Обновить статус'
+                    },
+                    buttons: {
+                        load: 'Загрузить',
+                        park: 'Парковка',
+                        assistOn: 'Асист ВКЛ',
+                        assistOff: 'Асист',
+                        feed: 'Подача',
+                        retract: 'Откат'
+                    },
+                    dialogs: {
+                        feedTitle: 'Подача филамента - Слот {slot}',
+                        retractTitle: 'Откат филамента - Слот {slot}',
+                        length: 'Длина (мм):',
+                        speed: 'Скорость (мм/с):',
+                        execute: 'Выполнить',
+                        cancel: 'Отмена'
+                    },
+                    notifications: {
+                        websocketConnected: 'WebSocket подключен',
+                        websocketDisconnected: 'WebSocket отключен',
+                        apiError: 'Ошибка API: {error}',
+                        loadError: 'Ошибка загрузки статуса: {error}',
+                        commandSuccess: 'Команда {command} выполнена успешно',
+                        commandSent: 'Команда {command} отправлена',
+                        commandError: 'Ошибка: {error}',
+                        commandErrorGeneric: 'Ошибка выполнения команды',
+                        executeError: 'Ошибка выполнения команды: {error}',
+                        feedAssistOn: 'Feed assist включен для слота {index}',
+                        feedAssistOff: 'Feed assist выключен для слота {index}',
+                        feedAssistAllOff: 'Feed assist выключен для всех слотов',
+                        feedAssistAllOffError: 'Не удалось отключить feed assist',
+                        refreshStatus: 'Статус обновлен',
+                        validation: {
+                            tempRange: 'Температура должна быть от 20 до 55°C',
+                            durationMin: 'Длительность должна быть минимум 1 минута',
+                            feedLength: 'Длина должна быть минимум 1 мм',
+                            retractLength: 'Длина должна быть минимум 1 мм'
+                        }
+                    },
+                    statusMap: {
+                        ready: 'Готов',
+                        busy: 'Занят',
+                        unknown: 'Неизвестно',
+                        disconnected: 'Отключено'
+                    },
+                    dryerStatusMap: {
+                        drying: 'Сушка',
+                        stop: 'Остановлена'
+                    },
+                    slotStatusMap: {
+                        ready: 'Готов',
+                        empty: 'Пустой',
+                        busy: 'Занят',
+                        unknown: 'Неизвестно'
+                    },
+                    rfidStatusMap: {
+                        0: 'Не найдено',
+                        1: 'Ошибка',
+                        2: 'Идентифицировано',
+                        3: 'Идентификация...'
+                    },
+                    common: {
+                        unknown: 'Неизвестно'
+                    },
+                    time: {
+                        hours: 'ч',
+                        minutes: 'мин',
+                        minutesShort: 'м',
+                        secondsShort: 'с'
+                    }
+                },
+                en: {
+                    header: {
+                        title: '🎨 ValgACE Control Panel',
+                        connectionLabel: 'Status',
+                        connected: 'Connected',
+                        disconnected: 'Disconnected'
+                    },
+                    cards: {
+                        deviceStatus: 'Device Status',
+                        dryer: 'Dryer Control',
+                        slots: 'Filament Slots',
+                        quickActions: 'Quick Actions'
+                    },
+                    deviceInfo: {
+                        model: 'Model',
+                        firmware: 'Firmware',
+                        status: 'Status',
+                        temp: 'Temperature',
+                        fan: 'Fan Speed',
+                        rfid: 'RFID',
+                        rfidOn: 'Enabled',
+                        rfidOff: 'Disabled'
+                    },
+                    dryer: {
+                        status: 'Status',
+                        targetTemp: 'Target Temperature',
+                        duration: 'Set Duration',
+                        remainingTime: 'Remaining Time',
+                        currentTemperature: 'Current Temperature',
+                        inputs: {
+                            temp: 'Temperature (°C):',
+                            duration: 'Duration (min):'
+                        },
+                        buttons: {
+                            start: 'Start Drying',
+                            stop: 'Stop Drying'
+                        }
+                    },
+                    slots: {
+                        slot: 'Slot',
+                        status: 'Status',
+                        type: 'Type',
+                        sku: 'SKU',
+                        rfid: 'RFID'
+                    },
+                    quickActions: {
+                        unload: 'Unload Filament',
+                        stopAssist: 'Stop Assist',
+                        refresh: 'Refresh Status'
+                    },
+                    buttons: {
+                        load: 'Load',
+                        park: 'Park',
+                        assistOn: 'Assist ON',
+                        assistOff: 'Assist',
+                        feed: 'Feed',
+                        retract: 'Retract'
+                    },
+                    dialogs: {
+                        feedTitle: 'Feed Filament - Slot {slot}',
+                        retractTitle: 'Retract Filament - Slot {slot}',
+                        length: 'Length (mm):',
+                        speed: 'Speed (mm/s):',
+                        execute: 'Execute',
+                        cancel: 'Cancel'
+                    },
+                    notifications: {
+                        websocketConnected: 'WebSocket connected',
+                        websocketDisconnected: 'WebSocket disconnected',
+                        apiError: 'API error: {error}',
+                        loadError: 'Status load error: {error}',
+                        commandSuccess: 'Command {command} executed successfully',
+                        commandSent: 'Command {command} sent',
+                        commandError: 'Error: {error}',
+                        commandErrorGeneric: 'Command execution error',
+                        executeError: 'Command execution error: {error}',
+                        feedAssistOn: 'Feed assist enabled for slot {index}',
+                        feedAssistOff: 'Feed assist disabled for slot {index}',
+                        feedAssistAllOff: 'Feed assist disabled for all slots',
+                        feedAssistAllOffError: 'Failed to disable feed assist',
+                        refreshStatus: 'Status refreshed',
+                        validation: {
+                            tempRange: 'Temperature must be between 20 and 55°C',
+                            durationMin: 'Duration must be at least 1 minute',
+                            feedLength: 'Length must be at least 1 mm',
+                            retractLength: 'Length must be at least 1 mm'
+                        }
+                    },
+                    statusMap: {
+                        ready: 'Ready',
+                        busy: 'Busy',
+                        unknown: 'Unknown',
+                        disconnected: 'Disconnected'
+                    },
+                    dryerStatusMap: {
+                        drying: 'Drying',
+                        stop: 'Stopped'
+                    },
+                    slotStatusMap: {
+                        ready: 'Ready',
+                        empty: 'Empty',
+                        busy: 'Busy',
+                        unknown: 'Unknown'
+                    },
+                    rfidStatusMap: {
+                        0: 'Not found',
+                        1: 'Error',
+                        2: 'Identified',
+                        3: 'Identifying...'
+                    },
+                    common: {
+                        unknown: 'Unknown'
+                    },
+                    time: {
+                        hours: 'h',
+                        minutes: 'min',
+                        minutesShort: 'm',
+                        secondsShort: 's'
+                    }
+                }
+            },
             // Connection
             wsConnected: false,
             ws: null,
@@ -57,6 +300,7 @@ createApp({
     mounted() {
         this.connectWebSocket();
         this.loadStatus();
+        this.updateDocumentTitle();
         
             // Auto-refresh
         const refreshInterval = ACE_DASHBOARD_CONFIG?.autoRefreshInterval || 5000;
@@ -68,6 +312,33 @@ createApp({
     },
     
     methods: {
+        t(path, params = {}) {
+            const keys = path.split('.');
+            let value = this.translations[this.currentLanguage];
+            for (const key of keys) {
+                if (value && Object.prototype.hasOwnProperty.call(value, key)) {
+                    value = value[key];
+                } else {
+                    return undefined;
+                }
+            }
+            if (typeof value === 'string') {
+                return value.replace(/\{(\w+)\}/g, (match, token) => {
+                    return Object.prototype.hasOwnProperty.call(params, token) ? params[token] : match;
+                });
+            }
+            return undefined;
+        },
+
+        toggleLanguage() {
+            this.currentLanguage = this.currentLanguage === 'ru' ? 'en' : 'ru';
+            this.updateDocumentTitle();
+        },
+
+        updateDocumentTitle() {
+            document.title = this.t('header.title');
+        },
+
         // WebSocket Connection
         connectWebSocket() {
             const wsUrl = getWebSocketUrl();
@@ -76,7 +347,7 @@ createApp({
             
             this.ws.onopen = () => {
                 this.wsConnected = true;
-                this.showNotification('WebSocket подключен', 'success');
+                this.showNotification(this.t('notifications.websocketConnected'), 'success');
                 this.subscribeToStatus();
             };
             
@@ -96,7 +367,7 @@ createApp({
             
             this.ws.onclose = () => {
                 this.wsConnected = false;
-                this.showNotification('WebSocket отключен', 'error');
+                this.showNotification(this.t('notifications.websocketDisconnected'), 'error');
                 // Reconnect after configured timeout
                 const reconnectTimeout = ACE_DASHBOARD_CONFIG?.wsReconnectTimeout || 3000;
                 setTimeout(() => this.connectWebSocket(), reconnectTimeout);
@@ -144,7 +415,7 @@ createApp({
                 
                 if (result.error) {
                     console.error('API error:', result.error);
-                    this.showNotification(`Ошибка API: ${result.error}`, 'error');
+                    this.showNotification(this.t('notifications.apiError', { error: result.error }), 'error');
                     return;
                 }
                 
@@ -161,7 +432,7 @@ createApp({
                 }
             } catch (error) {
                 console.error('Error loading status:', error);
-                this.showNotification(`Ошибка загрузки статуса: ${error.message}`, 'error');
+                this.showNotification(this.t('notifications.loadError', { error: error.message }), 'error');
             }
         },
         
@@ -298,30 +569,30 @@ createApp({
                 }
                 
                 if (result.error) {
-                    this.showNotification(`Ошибка API: ${result.error}`, 'error');
+                    this.showNotification(this.t('notifications.apiError', { error: result.error }), 'error');
                     return false;
                 }
                 
                 if (result.result) {
                     if (result.result.success !== false && !result.result.error) {
-                        this.showNotification(`Команда ${command} выполнена успешно`, 'success');
+                        this.showNotification(this.t('notifications.commandSuccess', { command }), 'success');
                         // Reload status after command
                         setTimeout(() => this.loadStatus(), 1000);
                         return true;
                     } else {
-                        const errorMsg = result.result.error || result.result.message || 'Неизвестная ошибка';
-                        this.showNotification(`Ошибка: ${errorMsg}`, 'error');
+                        const errorMsg = result.result.error || result.result.message || this.t('notifications.commandErrorGeneric');
+                        this.showNotification(this.t('notifications.commandError', { error: errorMsg }), 'error');
                         return false;
                     }
                 }
                 
                 // Если нет result, но и нет ошибки - считаем успехом
-                this.showNotification(`Команда ${command} отправлена`, 'success');
+                this.showNotification(this.t('notifications.commandSent', { command }), 'success');
                 setTimeout(() => this.loadStatus(), 1000);
                 return true;
             } catch (error) {
                 console.error('Error executing command:', error);
-                this.showNotification(`Ошибка выполнения команды: ${error.message}`, 'error');
+                this.showNotification(this.t('notifications.executeError', { error: error.message }), 'error');
                 return false;
             }
         },
@@ -336,6 +607,22 @@ createApp({
         
         async unloadFilament() {
             await this.changeTool(-1);
+        },
+
+        async stopAssist() {
+            let anySuccess = false;
+            for (let index = 0; index < 4; index++) {
+                const success = await this.executeCommand('ACE_DISABLE_FEED_ASSIST', { INDEX: index });
+                if (success) {
+                    anySuccess = true;
+                }
+            }
+            if (anySuccess) {
+                this.feedAssistSlot = -1;
+                this.showNotification(this.t('notifications.feedAssistAllOff'), 'success');
+            } else {
+                this.showNotification(this.t('notifications.feedAssistAllOffError'), 'error');
+            }
         },
         
         async parkToToolhead(index) {
@@ -361,7 +648,7 @@ createApp({
             const success = await this.executeCommand('ACE_ENABLE_FEED_ASSIST', { INDEX: index });
             if (success) {
                 this.feedAssistSlot = index;
-                this.showNotification(`Feed assist включен для слота ${index}`, 'success');
+                this.showNotification(this.t('notifications.feedAssistOn', { index }), 'success');
             }
         },
         
@@ -369,19 +656,19 @@ createApp({
             const success = await this.executeCommand('ACE_DISABLE_FEED_ASSIST', { INDEX: index });
             if (success) {
                 this.feedAssistSlot = -1;
-                this.showNotification(`Feed assist выключен для слота ${index}`, 'success');
+                this.showNotification(this.t('notifications.feedAssistOff', { index }), 'success');
             }
         },
         
         // Dryer Actions
         async startDrying() {
             if (this.dryingTemp < 20 || this.dryingTemp > 55) {
-                this.showNotification('Температура должна быть от 20 до 55°C', 'error');
+                this.showNotification(this.t('notifications.validation.tempRange'), 'error');
                 return;
             }
             
             if (this.dryingDuration < 1) {
-                this.showNotification('Длительность должна быть минимум 1 минута', 'error');
+                this.showNotification(this.t('notifications.validation.durationMin'), 'error');
                 return;
             }
             
@@ -409,7 +696,7 @@ createApp({
         
         async executeFeed() {
             if (this.feedLength < 1) {
-                this.showNotification('Длина должна быть минимум 1 мм', 'error');
+                this.showNotification(this.t('notifications.validation.feedLength'), 'error');
                 return;
             }
             
@@ -437,7 +724,7 @@ createApp({
         
         async executeRetract() {
             if (this.retractLength < 1) {
-                this.showNotification('Длина должна быть минимум 1 мм', 'error');
+                this.showNotification(this.t('notifications.validation.retractLength'), 'error');
                 return;
             }
             
@@ -454,45 +741,25 @@ createApp({
         
         async refreshStatus() {
             await this.loadStatus();
-            this.showNotification('Статус обновлен', 'success');
+            this.showNotification(this.t('notifications.refreshStatus'), 'success');
         },
         
         // Utility Functions
         getStatusText(status) {
-            const statusMap = {
-                'ready': 'Готов',
-                'busy': 'Занят',
-                'unknown': 'Неизвестно',
-                'disconnected': 'Отключено'
-            };
-            return statusMap[status] || status;
+            return this.t(`statusMap.${status}`) || status;
         },
         
         getDryerStatusText(status) {
-            const statusMap = {
-                'stop': 'Остановлена',
-                'drying': 'Сушка'
-            };
-            return statusMap[status] || status;
+            return this.t(`dryerStatusMap.${status}`) || status;
         },
         
         getSlotStatusText(status) {
-            const statusMap = {
-                'ready': 'Готов',
-                'empty': 'Пуст',
-                'busy': 'Занят'
-            };
-            return statusMap[status] || status;
+            return this.t(`slotStatusMap.${status}`) || status;
         },
         
         getRfidStatusText(rfid) {
-            const statusMap = {
-                0: 'Не найдено',
-                1: 'Ошибка',
-                2: 'Идентифицировано',
-                3: 'Идентификация...'
-            };
-            return statusMap[rfid] || 'Неизвестно';
+            const value = this.t(`rfidStatusMap.${rfid}`);
+            return value === `rfidStatusMap.${rfid}` ? this.t('common.unknown') : value;
         },
         
         getColorHex(color) {
@@ -506,19 +773,19 @@ createApp({
         },
         
         formatTime(minutes) {
-            if (!minutes || minutes <= 0) return '0 мин';
+            if (!minutes || minutes <= 0) return `0 ${this.t('time.minutes')}`;
             const hours = Math.floor(minutes / 60);
             const mins = minutes % 60;
             if (hours > 0) {
-                return `${hours}ч ${mins}м`;
+                return `${hours}${this.t('time.hours')} ${mins}${this.t('time.minutesShort')}`;
             }
-            return `${mins} мин`;
+            return `${mins} ${this.t('time.minutes')}`;
         },
         
         formatRemainingTime(minutes) {
             // Форматирует оставшееся время сушки в формате "119м 59с"
             // minutes может быть дробным числом (119.983 = 119 минут 59 секунд)
-            if (!minutes || minutes <= 0) return '0м 0с';
+            if (!minutes || minutes <= 0) return `0${this.t('time.minutesShort')} 0${this.t('time.secondsShort')}`;
             
             const totalMinutes = Math.floor(minutes);
             const fractionalPart = minutes - totalMinutes;
@@ -526,11 +793,11 @@ createApp({
             
             if (totalMinutes > 0) {
                 if (seconds > 0) {
-                    return `${totalMinutes}м ${seconds}с`;
+                    return `${totalMinutes}${this.t('time.minutesShort')} ${seconds}${this.t('time.secondsShort')}`;
                 }
-                return `${totalMinutes}м`;
+                return `${totalMinutes}${this.t('time.minutesShort')}`;
             }
-            return `${seconds}с`;
+            return `${seconds}${this.t('time.secondsShort')}`;
         },
         
         showNotification(message, type = 'info') {

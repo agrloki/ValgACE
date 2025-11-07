@@ -60,6 +60,7 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 - ✅ Creality K1 / K1 Max
 - ⚠️ Other Klipper printers (requires testing)
 
+
 ## Quick Start
 
 ### 1. Installation
@@ -119,6 +120,27 @@ Full documentation is available in the `docs/` folder:
 - **[Protocol](docs/Protocol.md)** - technical protocol documentation
 
 **Russian Documentation:** Available in `docs/` folder (Russian language)
+
+## Web Interface
+![Web](/.github/img/valgace-web-en.png)
+
+A fully featured dashboard for ValgACE lives in the `web-interface/` directory. It includes a language toggle (English/Russian), live status updates, slot management, dryer controls, and quick actions.
+
+### Quick setup
+
+```bash
+# Copy files to any host running Moonraker
+mkdir -p ~/ace-dashboard
+cp ~/ValgACE/web-interface/ace-dashboard.* ~/ace-dashboard/
+
+# Start a simple HTTP server
+cd ~/ace-dashboard
+python3 -m http.server 8080
+```
+
+Open `http://<printer-ip>:8080/ace-dashboard.html`
+
+For a production setup use nginx; see [`web-interface/nginx.conf.example`](web-interface/nginx.conf.example) and detailed installation steps in [`web-interface/README.md`](web-interface/README.md).
 
 ## Main Commands
 

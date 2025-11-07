@@ -37,6 +37,28 @@ body {
     color: #667eea;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.btn-language {
+    background: transparent;
+    border: 2px solid #667eea;
+    color: #667eea;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-language:hover {
+    background: #667eea;
+    color: #ffffff;
+}
+
 .connection-status {
     display: flex;
     align-items: center;

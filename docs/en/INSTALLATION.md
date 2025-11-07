@@ -256,6 +256,40 @@ For more details, see [Configuration Guide](CONFIGURATION.md).
 
 ---
 
+## Web Interface Dashboard
+
+ValgACE includes a ready-to-use dashboard located in the `web-interface/` directory. It provides live status, slot control, feed assist actions, dryer control and a bilingual (English/Russian) UI.
+
+### Option A: Simple HTTP server (testing)
+
+```bash
+mkdir -p ~/ace-dashboard
+cp ~/ValgACE/web-interface/ace-dashboard.* ~/ace-dashboard/
+
+cd ~/ace-dashboard
+python3 -m http.server 8080
+```
+
+Open `http://<printer-ip>:8080/ace-dashboard.html`
+
+### Option B: nginx (recommended for permanent setups)
+
+```bash
+sudo mkdir -p /var/www/ace-dashboard
+sudo cp ~/ValgACE/web-interface/ace-dashboard.* /var/www/ace-dashboard/
+sudo chown -R www-data:www-data /var/www/ace-dashboard
+
+sudo cp ~/ValgACE/web-interface/nginx.conf.example /etc/nginx/sites-available/ace-dashboard
+sudo nano /etc/nginx/sites-available/ace-dashboard  # adjust paths/hostnames
+sudo ln -s /etc/nginx/sites-available/ace-dashboard /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+The dashboard README provides additional details: [`web-interface/README.md`](../../web-interface/README.md)
+
+---
+
 ## Updating
 
 ### Automatic Update (via Moonraker)

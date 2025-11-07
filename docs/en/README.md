@@ -36,6 +36,7 @@ Welcome to the ValgACE documentation - a driver for Anycubic Color Engine Pro on
 
 - Source code: `extras/ace.py`
 - Protocol: [Protocol.md](../Protocol.md)
+- Web Interface: [web-interface/README.md](../../web-interface/README.md) - ready-to-use dashboard with English/Russian UI
 - Example macros: `ace.cfg.sample`
 
 ## Documentation Version
