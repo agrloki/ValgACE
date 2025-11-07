@@ -900,23 +900,45 @@ class ValgAce:
 
         # Track completion status - must be defined before callbacks
         toolchange_complete = {'done': False, 'error': None}
+        post_toolchange_executed = {'done': False}  # Flag to prevent recursive calls
         
         # Shared function to complete toolchange (used in both paths)
         def complete_toolchange_post():
             """Execute post-toolchange and mark as complete"""
-            try:
-                self.logger.info(f"Executing post-toolchange: FROM={was} TO={tool}")
-                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                if self.toolhead:
-                    self.toolhead.wait_moves()
-                gcmd.respond_info(f"Tool changed from {was} to {tool}")
-                self.logger.info(f"Post-toolchange complete, marking toolchange as done")
-                toolchange_complete['done'] = True
-            except Exception as e:
-                error_msg = f"Post-toolchange error: {str(e)}"
-                self.logger.error(error_msg)
-                toolchange_complete['done'] = True
-                toolchange_complete['error'] = error_msg
+            # Prevent recursive/multiple calls
+            if post_toolchange_executed['done']:
+                self.logger.warning("complete_toolchange_post called multiple times, ignoring")
+                return
+            
+            if toolchange_complete['done']:
+                self.logger.warning("complete_toolchange_post called after completion, ignoring")
+                return
+            
+            post_toolchange_executed['done'] = True
+            
+            # Execute post-toolchange macro asynchronously via reactor timer
+            # This prevents recursion issues by running it in a separate context
+            def execute_post_toolchange_macro(eventtime):
+                try:
+                    self.logger.info(f"Executing post-toolchange: FROM={was} TO={tool}")
+                    # Use run_script_from_command in async context to avoid recursion
+                    self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                    if self.toolhead:
+                        self.toolhead.wait_moves()
+                    gcmd.respond_info(f"Tool changed from {was} to {tool}")
+                    self.logger.info(f"Post-toolchange complete, marking toolchange as done")
+                    toolchange_complete['done'] = True
+                except Exception as e:
+                    error_msg = f"Post-toolchange error: {str(e)}"
+                    self.logger.error(error_msg)
+                    toolchange_complete['done'] = True
+                    toolchange_complete['error'] = error_msg
+                    # Reset flag on error so we can retry if needed
+                    post_toolchange_executed['done'] = False
+                return self.reactor.NEVER
+            
+            # Schedule post-toolchange execution in reactor (immediately)
+            self.reactor.register_timer(execute_post_toolchange_macro, self.reactor.NOW)
         
         def on_toolchange_complete():
             """Called when toolchange is fully complete"""
@@ -952,7 +974,8 @@ class ValgAce:
                 def after_retract_delay():
                     self.logger.info(f"Retract delay complete, waiting for slot {was} to be ready")
                     # Start waiting for slot to be ready after retraction
-                    self._wait_for_slot_ready_async(was, lambda: self._on_slot_ready_callback(tool, was, gcmd, on_toolchange_complete, on_toolchange_error), self.reactor.monotonic())
+                    # Pass complete_toolchange_post to avoid recursive calls
+                    self._wait_for_slot_ready_async(was, lambda: self._on_slot_ready_callback(tool, was, gcmd, complete_toolchange_post, on_toolchange_error), self.reactor.monotonic())
                 
                 # Wait for retract to physically complete
                 self.dwell(retract_delay, after_retract_delay)
@@ -1146,43 +1169,20 @@ class ValgAce:
             return eventtime + 1.0
         self.reactor.register_timer(check_status_timer, event_time + 1.0)
 
-    def _on_slot_ready_callback(self, tool, was, gcmd, on_complete, on_error):
+    def _on_slot_ready_callback(self, tool, was, gcmd, complete_toolchange_post, on_error):
         """Callback when slot is ready after retraction"""
         self.logger.info(f"Slot ready callback: tool={tool}, was={was}")
         
         if tool == -1:
             # Unloading only, no new tool to park
-            self.logger.info(f"Unloading complete, executing post-toolchange")
-            try:
-                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                if self.toolhead:
-                    self.toolhead.wait_moves()
-                gcmd.respond_info(f"Tool unloaded (was {was})")
-                on_complete()
-            except Exception as e:
-                error_msg = f"Post-toolchange error: {str(e)}"
-                self.logger.error(error_msg)
-                on_error(error_msg)
+            self.logger.info(f"Unloading complete, executing post-toolchange via complete_toolchange_post")
+            # Use the shared complete_toolchange_post function to avoid recursion
+            complete_toolchange_post()
         else:
             # Park new tool using direct function call
             self.logger.info(f"Starting parking of new tool {tool} using direct function call")
             self._park_to_toolhead(tool)
 
-                    
-            def after_park_delay():
-                try:
-                    self.logger.info(f"Parking delay complete for slot {tool}, executing post-toolchange (in callback)")
-                    self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                    if self.toolhead:
-                        self.toolhead.wait_moves()
-                    gcmd.respond_info(f"Tool changed from {was} to {tool}")
-                    self.logger.info(f"Post-toolchange complete in callback, calling on_complete")
-                    on_complete()
-                except Exception as e:
-                    error_msg = f"Error in after_park_delay (callback): {str(e)}"
-                    self.logger.error(error_msg)
-                    on_error(error_msg)
-            
             # Monitor parking completion instead of fixed timeout
             parking_check_count_cb = [0]  # Use list to allow modification in nested function
             
@@ -1203,11 +1203,12 @@ class ValgAce:
                 
                 # Check if parking completed (changed from True to False)
                 if not self._park_in_progress:
-                    self.logger.info(f"Parking completed for slot {tool} (park_in_progress=False), executing post-toolchange (callback check #{parking_check_count_cb[0]})")
+                    self.logger.info(f"Parking completed for slot {tool} (park_in_progress=False), executing post-toolchange via complete_toolchange_post (callback check #{parking_check_count_cb[0]})")
                     try:
-                        after_park_delay()
+                        # Use the shared complete_toolchange_post function to avoid recursion
+                        complete_toolchange_post()
                     except Exception as e:
-                        error_msg = f"Error in after_park_delay: {str(e)}"
+                        error_msg = f"Error in complete_toolchange_post: {str(e)}"
                         self.logger.error(error_msg)
                         on_error(error_msg)
                     return self.reactor.NEVER
