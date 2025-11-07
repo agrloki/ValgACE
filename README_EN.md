@@ -21,7 +21,7 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 
 ### Project Status
 
-**Status:** In testing  
+**Status:** Stable  
 **Confirmed on:** Creality K1, Kingroon KLP1, Kingroon KP3S Pro V2, custom Klipper 3D printers  
 **Based on:** [DuckACE](https://github.com/utkabobr/DuckACE) and [BunnyACE](https://github.com/BlackFrogKok/BunnyACE)
 
@@ -176,7 +176,4 @@ Project based on:
 
 Project is distributed under [GNU GPL v3](LICENSE.md) license.
 
----
-
-**Warning:** Driver is in testing stage. Works stably on clean Klipper, stability may vary on customized versions from printer manufacturers.
 

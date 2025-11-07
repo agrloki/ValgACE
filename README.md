@@ -21,7 +21,7 @@ ValgACE представляет собой полнофункциональны
 
 ### Статус проекта
 
-**Статус:** В стадии тестирования  
+**Статус:** Стабильная версия  
 **Подтверждено на:** Creality K1, Kingroon KLP1, Kingroon KP3S Pro V2, custom klipper 3d printers.
 **Основан на:** [DuckACE](https://github.com/utkabobr/DuckACE) и [BunnyACE](https://github.com/BlackFrogKok/BunnyACE)
 
@@ -244,6 +244,3 @@ python3 -m http.server 8080
 
 Проект распространяется под лицензией [GNU GPL v3](LICENSE.md).
 
----
-
-**Внимание:** Драйвер находится в стадии тестирования. На чистом Klipper работает стабильно, на кастомизированных версиях от производителей стабильность может варьироваться.
