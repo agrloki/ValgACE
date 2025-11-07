@@ -148,10 +148,16 @@ createApp({
                     return;
                 }
                 
-                if (result.result) {
-                    this.updateStatus(result.result);
+                // API может возвращать данные напрямую или в result.result
+                // Обрабатываем оба случая
+                const statusData = result.result || result;
+                
+                // Проверяем, что это действительно данные статуса (есть хотя бы одно из полей)
+                if (statusData && typeof statusData === 'object' && 
+                    (statusData.status !== undefined || statusData.slots !== undefined || statusData.dryer !== undefined)) {
+                    this.updateStatus(statusData);
                 } else {
-                    console.warn('No result in response:', result);
+                    console.warn('Invalid status data in response:', result);
                 }
             } catch (error) {
                 console.error('Error loading status:', error);
@@ -169,54 +175,79 @@ createApp({
                 console.log('Updating status with data:', data);
             }
             
-            // Обновляем статус устройства
-            this.deviceStatus = {
-                status: data.status || 'unknown',
-                model: data.model || '',
-                firmware: data.firmware || '',
-                temp: data.temp || 0,
-                fan_speed: data.fan_speed || 0,
-                enable_rfid: data.enable_rfid || 0
-            };
+            // Обновляем статус устройства (обновляем только если поля присутствуют)
+            if (data.status !== undefined) {
+                this.deviceStatus.status = data.status;
+            }
+            if (data.model !== undefined) {
+                this.deviceStatus.model = data.model;
+            }
+            if (data.firmware !== undefined) {
+                this.deviceStatus.firmware = data.firmware;
+            }
+            if (data.temp !== undefined) {
+                this.deviceStatus.temp = data.temp;
+            }
+            if (data.fan_speed !== undefined) {
+                this.deviceStatus.fan_speed = data.fan_speed;
+            }
+            if (data.enable_rfid !== undefined) {
+                this.deviceStatus.enable_rfid = data.enable_rfid;
+            }
             
             // Обновляем статус сушилки
-            const dryer = data.dryer || data.dryer_status || {};
+            const dryer = data.dryer || data.dryer_status;
             
-            // remain_time и duration приходят в минутах (по протоколу)
-            // Но могут приходить в секундах, если устройство отправляет не по протоколу
-            let duration = dryer.duration || 0;
-            let remain_time = dryer.remain_time || 0;
-            
-            // Проверяем, если значения слишком большие для минут (> 1440 = 24 часа)
-            // то вероятно это секунды, конвертируем
-            if (duration > 1440) {
-                duration = Math.floor(duration / 60);
+            if (dryer && typeof dryer === 'object') {
+                // duration всегда в минутах (данные из ace.py уже нормализованы)
+                if (dryer.duration !== undefined) {
+                    this.dryerStatus.duration = Math.floor(dryer.duration); // Целое число минут
+                }
+                
+                // remain_time: данные из ace.py уже конвертированы из секунд в минуты
+                // Но на всякий случай проверяем: если значение слишком большое (> 1440 минут = 24 часа),
+                // значит оно не было конвертировано и все еще в секундах
+                if (dryer.remain_time !== undefined) {
+                    let remain_time = dryer.remain_time;
+                    
+                    // Если remain_time > 1440 (24 часа в минутах), это точно секунды, конвертируем
+                    if (remain_time > 1440) {
+                        remain_time = remain_time / 60;
+                    }
+                    // Также проверяем: если remain_time значительно больше duration (в минутах), 
+                    // и значение > 60, вероятно это секунды
+                    else if (this.dryerStatus.duration > 0 && remain_time > this.dryerStatus.duration * 1.5 && remain_time > 60) {
+                        remain_time = remain_time / 60;
+                    }
+                    
+                    this.dryerStatus.remain_time = remain_time; // Может быть дробным (минуты.секунды)
+                }
+                if (dryer.status !== undefined) {
+                    this.dryerStatus.status = dryer.status;
+                }
+                if (dryer.target_temp !== undefined) {
+                    this.dryerStatus.target_temp = dryer.target_temp;
+                }
             }
-            if (remain_time > 1440) {
-                remain_time = remain_time / 60; // Сохраняем дробную часть для секунд
-            }
             
-            this.dryerStatus = {
-                status: dryer.status || 'stop',
-                target_temp: dryer.target_temp || 0,
-                duration: Math.floor(duration), // Целое число минут
-                remain_time: remain_time // Может быть дробным (минуты.секунды)
-            };
-            
-            // Обновляем слоты
-            if (Array.isArray(data.slots)) {
-                this.slots = data.slots.map(slot => ({
-                    index: slot.index !== undefined ? slot.index : -1,
-                    status: slot.status || 'unknown',
-                    type: slot.type || '',
-                    color: Array.isArray(slot.color) ? slot.color : [0, 0, 0],
-                    sku: slot.sku || '',
-                    rfid: slot.rfid !== undefined ? slot.rfid : 0
-                }));
-            } else {
-                console.warn('Slots data is not an array:', data.slots);
-                this.slots = [];
+            // Обновляем слоты (если данные присутствуют)
+            if (data.slots !== undefined) {
+                if (Array.isArray(data.slots)) {
+                    // Обновляем слоты, даже если массив пустой
+                    this.slots = data.slots.map(slot => ({
+                        index: slot.index !== undefined ? slot.index : -1,
+                        status: slot.status || 'unknown',
+                        type: slot.type || '',
+                        color: Array.isArray(slot.color) ? slot.color : [0, 0, 0],
+                        sku: slot.sku || '',
+                        rfid: slot.rfid !== undefined ? slot.rfid : 0
+                    }));
+                } else {
+                    // Если slots есть, но это не массив - предупреждение, но не очищаем данные
+                    console.warn('Slots data is not an array:', data.slots);
+                }
             }
+            // Если data.slots === undefined, просто не обновляем слоты (сохраняем текущие)
             
             // Обновляем состояние feed assist из статуса
             if (data.feed_assist_slot !== undefined) {

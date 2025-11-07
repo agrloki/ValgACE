@@ -69,6 +69,10 @@
                             <span class="value">{{ dryerStatus.target_temp }}°C</span>
                         </div>
                         <div class="info-row" v-if="dryerStatus.status === 'drying'">
+                            <span class="label">Заданное время:</span>
+                            <span class="value">{{ formatTime(dryerStatus.duration) }}</span>
+                        </div>
+                        <div class="info-row" v-if="dryerStatus.status === 'drying'">
                             <span class="label">Осталось времени:</span>
                             <span class="value">{{ formatRemainingTime(dryerStatus.remain_time) }}</span>
                         </div>

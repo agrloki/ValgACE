@@ -268,20 +268,13 @@ class ValgAce:
         if isinstance(dryer_data, dict):
             dryer_normalized = dryer_data.copy()
             
-            # По протоколу duration и remain_time должны быть в минутах
-            # Но устройство может отправлять в секундах, проверяем
-            duration_raw = dryer_normalized.get('duration', 0)
+            # remain_time всегда приходит в секундах - конвертируем в минуты
             remain_time_raw = dryer_normalized.get('remain_time', 0)
+            if remain_time_raw > 0:
+                dryer_normalized['remain_time'] = remain_time_raw / 60  # Сохраняем дробную часть для секунд
             
-            # Если duration > 1000, это точно секунды (сушка не длится больше 16 часов)
-            if duration_raw > 1000:
-                dryer_normalized['duration'] = duration_raw / 60  # Сохраняем дробную часть
-                if remain_time_raw > 0:
-                    dryer_normalized['remain_time'] = remain_time_raw / 60  # Сохраняем дробную часть
-            elif remain_time_raw > 1000:
-                # duration в минутах, но remain_time в секундах
-                dryer_normalized['remain_time'] = remain_time_raw / 60  # Сохраняем дробную часть
-            # Иначе оставляем как есть (уже в минутах)
+            # duration всегда приходит в минутах - оставляем как есть
+            # (ничего не делаем, уже в правильном формате)
         else:
             dryer_normalized = {}
         
@@ -624,24 +617,17 @@ class ValgAce:
             if dryer_status == 'drying':
                 output.append(f"Target Temperature: {dryer.get('target_temp', 0)}°C")
                 output.append(f"Current Temperature: {info.get('temp', 0)}°C")
+                # duration всегда в минутах
                 duration = dryer.get('duration', 0)
-                # Если duration в секундах, конвертируем в минуты
-                if duration > 1000:  # Вероятно в секундах
-                    duration = duration // 60
                 output.append(f"Duration: {duration} minutes")
-                remain_time = dryer.get('remain_time', 0)
                 
-                # ОТЛАДКА: Выводим сырое значение
+                # remain_time всегда приходит в секундах - конвертируем в минуты
                 remain_time_raw = dryer.get('remain_time', 0)
-                output.append(f"Remaining Time (RAW): {remain_time_raw}")
+                output.append(f"Remaining Time (RAW): {remain_time_raw} seconds")
                 
-                # Определяем единицы измерения remain_time
-                # Если remain_time > 1000, это точно секунды (сушка не длится больше 16 часов)
-                # Или если remain_time значительно больше duration
-                if remain_time > 1000 or (duration > 0 and remain_time > duration * 1.5):
-                    # Вероятно в секундах, конвертируем в минуты
-                    remain_time = remain_time / 60  # Сохраняем дробную часть
-                    output.append(f"Remaining Time (after conversion): {remain_time}")
+                # Конвертируем секунды в минуты (с сохранением дробной части для секунд)
+                remain_time = remain_time_raw / 60 if remain_time_raw > 0 else 0
+                output.append(f"Remaining Time (after conversion): {remain_time} minutes")
                 
                 if remain_time > 0:
                     # Форматируем как "119m 54s"
