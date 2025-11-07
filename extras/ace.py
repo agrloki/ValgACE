@@ -108,6 +108,8 @@ class ValgAce:
         
         # Инициализация флага для избежания дублирования dwell таймеров
         self._dwell_scheduled = False
+        # Инициализация флага для отслеживания увеличения счетчика парковки
+        self._park_count_increased = False
 
     def _get_default_info(self) -> Dict[str, Any]:
         return {
@@ -467,8 +469,6 @@ class ValgAce:
                         self._last_assist_count = current_assist_count
                         self._assist_hit_count = 0
                         # Mark that count has increased at least once
-                        if not hasattr(self, '_park_count_increased'):
-                            self._park_count_increased = False
                         if current_assist_count > 0:
                             self._park_count_increased = True
                             self.logger.info(f"Feed assist working for slot {self._park_index}, count: {current_assist_count}")
@@ -476,7 +476,7 @@ class ValgAce:
                         self._assist_hit_count += 1
                         
                         # Check if feed assist is actually working
-                        if elapsed_time > 3.0 and not getattr(self, '_park_count_increased', False):
+                        if elapsed_time > 3.0 and not self._park_count_increased:
                             # 3 seconds passed and count never increased - feed assist not working
                             self.logger.error(f"Feed assist for slot {self._park_index} not working - count stayed at {current_assist_count}")
                             self._park_error = True  # Mark as error BEFORE resetting flag
@@ -486,7 +486,7 @@ class ValgAce:
                         
                         if self._assist_hit_count >= self.park_hit_count:
                             # Only complete if count actually increased
-                            if getattr(self, '_park_count_increased', False):
+                            if self._park_count_increased:
                                 self._complete_parking()
                             else:
                                 self.logger.warning(f"Parking check completed but count never increased (stayed at {current_assist_count})")
@@ -496,7 +496,7 @@ class ValgAce:
                             return
                         # Проверяем, что таймер не будет создаваться бесконечно
                         # если self.dwell уже запланирован, не вызываем его снова
-                        if not hasattr(self, '_dwell_scheduled') or not self._dwell_scheduled:
+                        if not self._dwell_scheduled:
                             self._dwell_scheduled = True
                             self.dwell(0.7, lambda: setattr(self, '_dwell_scheduled', False))
 
@@ -692,13 +692,16 @@ class ValgAce:
             request = {"method": method}
             if params.strip():
                 request["params"] = json.loads(params)
+            
             def callback(response):
                 # Выводим сырой JSON ответ без форматирования
                 gcmd.respond_info(json.dumps(response, indent=2))
+            
+            self.send_request(request, callback)
         except Exception as e:
             self.logger.info(f"Debug command error: {str(e)}")
             gcmd.respond_raw(f"Error: {str(e)}")
-        self.send_request(request, callback)
+            return
 
     def cmd_ACE_FILAMENT_INFO(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
@@ -852,7 +855,7 @@ class ValgAce:
 
     def cmd_ACE_UPDATE_RETRACT_SPEED(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
-        speed = gcmd.get_int('SPEED', self.feed_speed, minval=1)
+        speed = gcmd.get_int('SPEED', self.retract_speed, minval=1)
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
@@ -923,8 +926,8 @@ class ValgAce:
                 }
             }, on_retract_complete)
         else:
-            # Use G-code command for consistency
-            self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+            # Use direct function call instead of G-code command
+            self._park_to_toolhead(tool)
             if self.toolhead:
                 self.toolhead.wait_moves()
            
@@ -998,9 +1001,9 @@ class ValgAce:
                 self.toolhead.wait_moves()
             gcmd.respond_info(f"Tool unloaded (was {was})")
         else:
-            # Park new tool using G-code command (like in working version)
-            self.logger.info(f"Starting parking of new tool {tool} using G-code command")
-            self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+            # Park new tool using direct function call
+            self.logger.info(f"Starting parking of new tool {tool} using direct function call")
+            self._park_to_toolhead(tool)
             if self.toolhead:
                 self.toolhead.wait_moves()
                     
@@ -1208,6 +1211,8 @@ class ValgAce:
         self.logger.info(f"INFINITY_SPOOL: starting parking for slot {tool} with monitoring")
         
         # Set up monitoring for parking completion
+        # Note: _park_to_toolhead will set these flags, but we need to set them first
+        # to avoid race condition with monitoring timer
         self._park_in_progress = True
         self._park_error = False
         self._park_index = tool
@@ -1215,8 +1220,8 @@ class ValgAce:
         self._park_start_time = self.reactor.monotonic()
         self._park_count_increased = False
         
-        # Start parking via G-code command
-        self.gcode.run_script_from_command(f'ACE_PARK_TO_TOOLHEAD INDEX={tool}')
+        # Start parking using direct function call
+        self._park_to_toolhead(tool)
         if self.toolhead:
             self.toolhead.wait_moves()
             
