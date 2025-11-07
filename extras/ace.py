@@ -900,13 +900,13 @@ class ValgAce:
 
         # Track completion status - must be defined before callbacks
         toolchange_complete = {'done': False, 'error': None}
-        post_toolchange_executed = {'done': False}  # Flag to prevent recursive calls
+        post_toolchange_scheduled = {'done': False}  # Flag to track if post-toolchange was scheduled
         
         # Shared function to complete toolchange (used in both paths)
         def complete_toolchange_post():
             """Execute post-toolchange and mark as complete"""
             # Prevent recursive/multiple calls
-            if post_toolchange_executed['done']:
+            if post_toolchange_scheduled['done']:
                 self.logger.warning("complete_toolchange_post called multiple times, ignoring")
                 return
             
@@ -914,14 +914,14 @@ class ValgAce:
                 self.logger.warning("complete_toolchange_post called after completion, ignoring")
                 return
             
-            post_toolchange_executed['done'] = True
+            post_toolchange_scheduled['done'] = True
+            self.logger.info(f"Scheduling post-toolchange execution: FROM={was} TO={tool}")
             
-            # Execute post-toolchange macro asynchronously via reactor timer
-            # This prevents recursion issues by running it in a separate context
+            # Execute post-toolchange macro asynchronously via reactor callback
+            # This prevents recursion issues by running it in a separate reactor cycle
             def execute_post_toolchange_macro(eventtime):
                 try:
-                    self.logger.info(f"Executing post-toolchange: FROM={was} TO={tool}")
-                    # Use run_script_from_command in async context to avoid recursion
+                    self.logger.info(f"Executing post-toolchange macro: FROM={was} TO={tool}")
                     self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
                     if self.toolhead:
                         self.toolhead.wait_moves()
@@ -930,15 +930,16 @@ class ValgAce:
                     toolchange_complete['done'] = True
                 except Exception as e:
                     error_msg = f"Post-toolchange error: {str(e)}"
-                    self.logger.error(error_msg)
+                    self.logger.error(f"Error in post-toolchange macro: {error_msg}")
+                    # Still mark as done to unblock waiting, but record error
                     toolchange_complete['done'] = True
                     toolchange_complete['error'] = error_msg
-                    # Reset flag on error so we can retry if needed
-                    post_toolchange_executed['done'] = False
-                return self.reactor.NEVER
+                return self.reactor.NEVER  # Run once
             
-            # Schedule post-toolchange execution in reactor (immediately)
-            self.reactor.register_timer(execute_post_toolchange_macro, self.reactor.NOW)
+            # Use register_callback for immediate execution in next reactor cycle
+            # This is more reliable than timer for immediate execution
+            self.reactor.register_callback(lambda: execute_post_toolchange_macro(self.reactor.monotonic()))
+            self.logger.info(f"Post-toolchange callback registered for execution")
         
         def on_toolchange_complete():
             """Called when toolchange is fully complete"""
@@ -1115,12 +1116,16 @@ class ValgAce:
             # Log status every second for debugging
             check_count += 1
             if check_count % 10 == 0:
-                self.logger.info(f"Waiting for toolchange... elapsed: {elapsed:.1f}s, park_in_progress: {self._park_in_progress}, park_error: {self._park_error}, done: {toolchange_complete['done']}, check_count: {check_count}")
+                self.logger.info(f"Waiting for toolchange... elapsed: {elapsed:.1f}s, park_in_progress: {self._park_in_progress}, park_error: {self._park_error}, done: {toolchange_complete['done']}, scheduled: {post_toolchange_scheduled['done']}, check_count: {check_count}")
             
             # Check for timeout
             if elapsed > max_wait_time:
-                error_msg = f"Toolchange timeout after {elapsed:.1f}s (park_in_progress: {self._park_in_progress}, park_error: {self._park_error}, check_count: {check_count})"
+                error_msg = f"Toolchange timeout after {elapsed:.1f}s (park_in_progress: {self._park_in_progress}, park_error: {self._park_error}, scheduled: {post_toolchange_scheduled['done']}, check_count: {check_count})"
                 self.logger.error(error_msg)
+                # If post-toolchange was scheduled but not completed, the callback may have failed
+                if post_toolchange_scheduled['done'] and not toolchange_complete['done']:
+                    self.logger.error("Post-toolchange callback was registered but never executed, macro may have failed silently")
+                
                 gcmd.respond_raw(f"ACE Error: {error_msg}")
                 if not toolchange_complete['done']:
                     on_toolchange_error(error_msg)
@@ -1129,7 +1134,8 @@ class ValgAce:
             # Small dwell blocks G-code but allows reactor to process async events
             # This is the key: toolhead.dwell() yields to reactor for async processing
             # The reactor will process timers and callbacks during this dwell
-            self.toolhead.dwell(0.1)
+            # Use slightly longer dwell to ensure callbacks have time to execute
+            self.toolhead.dwell(0.2)
         
         self.logger.info(f"Blocking wait complete. done: {toolchange_complete['done']}, error: {toolchange_complete['error']}, final_park_in_progress: {self._park_in_progress}")
         
