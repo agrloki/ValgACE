@@ -40,7 +40,7 @@
 - Moonraker компонент: `moonraker/ace_status.py`
 - Протокол: [Protocol.md](Protocol.md) / [Protocol_ru.md](Protocol_ru.md)
 - Moonraker API: [MOONRAKER_API.md](MOONRAKER_API.md) - подробная документация по интеграции
-- Веб-интерфейс: [examples/README.md](examples/README.md) - готовый dashboard для управления ACE
+- Веб-интерфейс: [web-interface/README.md](../web-interface/README.md) - готовый dashboard для управления ACE
 - Примеры макросов: `ace.cfg.sample`
 
 ## Версия документации

@@ -60,14 +60,14 @@ ValgACE Dashboard — это современный веб-интерфейс д
 
 ### Установка Dashboard
 
-Подробные инструкции по установке см. в [README веб-интерфейса](examples/README.md).
+Подробные инструкции по установке см. в [README веб-интерфейса](../../web-interface/README.md).
 
 **Быстрая установка:**
 
 1. Скопируйте файлы:
    ```bash
    mkdir -p ~/ace-dashboard
-   cp ~/ValgACE/docs/examples/ace-dashboard.* ~/ace-dashboard/
+   cp ~/ValgACE/web-interface/ace-dashboard.* ~/ace-dashboard/
    ```
 
 2. Запустите HTTP сервер:

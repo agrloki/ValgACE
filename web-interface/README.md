@@ -29,7 +29,7 @@ ValgACE Dashboard - это полнофункциональный веб-инт�
 1. Скопируйте все файлы в одну папку:
    ```bash
    mkdir -p ~/ace-dashboard
-   cp ~/ValgACE/docs/examples/ace-dashboard.* ~/ace-dashboard/
+   cp ~/ValgACE/web-interface/ace-dashboard.* ~/ace-dashboard/
    ```
 
 2. Откройте `ace-dashboard.html` в браузере через веб-сервер (не через `file://`)

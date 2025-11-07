@@ -13,7 +13,7 @@ server {
     listen 80;
     server_name ace-dashboard.local;  # Замените на ваш домен или IP
     
-    root /path/to/ValgACE/docs/examples;  # Путь к файлам dashboard
+    root /path/to/ValgACE/web-interface;  # Путь к файлам dashboard
     index ace-dashboard.html;
     
     # Логирование
@@ -88,7 +88,7 @@ server {
     
     # ValgACE Dashboard на поддомене
     location /ace {
-        alias /path/to/ValgACE/docs/examples;
+        alias /path/to/ValgACE/web-interface;
         index ace-dashboard.html;
         try_files $uri $uri/ /ace/ace-dashboard.html;
     }
@@ -155,7 +155,7 @@ server {
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
     
-    root /path/to/ValgACE/docs/examples;
+    root /path/to/ValgACE/web-interface;
     index ace-dashboard.html;
     
     # Основной файл
@@ -226,7 +226,7 @@ server {
     
     # ValgACE Dashboard
     location /ace {
-        alias /path/to/ValgACE/docs/examples;
+        alias /path/to/ValgACE/web-interface;
         index ace-dashboard.html;
         try_files $uri $uri/ /ace/ace-dashboard.html;
     }
@@ -371,7 +371,7 @@ server {
     listen 80;
     server_name 192.168.1.100;  # IP адрес сервера
     
-    root /home/user/ValgACE/docs/examples;
+    root /home/user/ValgACE/web-interface;
     index ace-dashboard.html;
     
     # ... остальная конфигурация ...

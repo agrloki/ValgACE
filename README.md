@@ -186,9 +186,9 @@ curl -X POST http://localhost:7125/server/ace/command \
 ## Веб-интерфейс
 ![Web](/.github/img/valgace-web.png)
 
-Готовый веб-интерфейс для управления ACE доступен в `docs/examples/`:
+Готовый веб-интерфейс для управления ACE доступен в `web-interface/`:
 
-- **[ValgACE Dashboard](docs/examples/README.md)** - полнофункциональный веб-интерфейс с Vue.js
+- **[ValgACE Dashboard](web-interface/README.md)** - полнофункциональный веб-интерфейс с Vue.js
 - Отображение статуса устройства в реальном времени
 - Управление слотами филамента (загрузка, парковка, feed assist, подача, откат)
 - Управление сушкой
@@ -199,7 +199,7 @@ curl -X POST http://localhost:7125/server/ace/command \
 ```bash
 # Скопируйте файлы
 mkdir -p ~/ace-dashboard
-cp ~/ValgACE/docs/examples/ace-dashboard.* ~/ace-dashboard/
+cp ~/ValgACE/web-interface/ace-dashboard.* ~/ace-dashboard/
 
 # Запустите HTTP сервер
 cd ~/ace-dashboard
@@ -208,7 +208,7 @@ python3 -m http.server 8080
 
 Откройте в браузере: `http://<IP-принтера>:8080/ace-dashboard.html`
 
-**Для постоянного использования рекомендуется установка через nginx** — см. [инструкции по установке](docs/INSTALLATION.md#2-установка-веб-интерфейса-valgace-dashboard) и [пример конфигурации nginx](docs/examples/nginx.conf.example).
+**Для постоянного использования рекомендуется установка через nginx** — см. [инструкции по установке](docs/INSTALLATION.md#2-установка-веб-интерфейса-valgace-dashboard) и [пример конфигурации nginx](web-interface/nginx.conf.example).
 
 Файлы:
 - `ace-dashboard.html` - основной интерфейс

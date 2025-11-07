@@ -240,7 +240,7 @@ ValgACE Dashboard — это готовый веб-интерфейс для у�
 1. Скопируйте файлы dashboard:
    ```bash
    mkdir -p ~/ace-dashboard
-   cp ~/ValgACE/docs/examples/ace-dashboard.* ~/ace-dashboard/
+   cp ~/ValgACE/web-interface/ace-dashboard.* ~/ace-dashboard/
    ```
 
 2. Запустите простой HTTP сервер:
@@ -258,7 +258,7 @@ ValgACE Dashboard — это готовый веб-интерфейс для у�
 1. **Скопируйте файлы в директорию веб-сервера:**
    ```bash
    sudo mkdir -p /var/www/ace-dashboard
-   sudo cp ~/ValgACE/docs/examples/ace-dashboard.* /var/www/ace-dashboard/
+   sudo cp ~/ValgACE/web-interface/ace-dashboard.* /var/www/ace-dashboard/
    sudo chown -R www-data:www-data /var/www/ace-dashboard
    ```
 
@@ -270,7 +270,7 @@ ValgACE Dashboard — это готовый веб-интерфейс для у�
 3. **Используйте пример конфигурации:**
    ```bash
    # Скопируйте пример
-   sudo cp ~/ValgACE/docs/examples/nginx.conf.example /etc/nginx/sites-available/ace-dashboard
+   sudo cp ~/ValgACE/web-interface/nginx.conf.example /etc/nginx/sites-available/ace-dashboard
    
    # Отредактируйте конфигурацию
    sudo nano /etc/nginx/sites-available/ace-dashboard
@@ -347,7 +347,7 @@ defaults: {
 }
 ```
 
-Подробнее см. [README веб-интерфейса](examples/README.md) и [пример конфигурации nginx](examples/nginx.conf.example).
+Подробнее см. [README веб-интерфейса](../web-interface/README.md) и [пример конфигурации nginx](../web-interface/nginx.conf.example).
 
 ### 3) Автоматические обновления (update_manager)
 
@@ -500,7 +500,7 @@ pip3 install pyserial
 1. ✅ Прочитайте [Руководство пользователя](USER_GUIDE.md)
 2. ✅ Изучите [Справочник команд](COMMANDS.md)
 3. ✅ Настройте параметры в [Конфигурации](CONFIGURATION.md)
-4. ✅ Установите [веб-интерфейс Dashboard](examples/README.md) для удобного управления
+4. ✅ Установите [веб-интерфейс Dashboard](../web-interface/README.md) для удобного управления
 5. ✅ Протестируйте базовые команды
 
 ---
