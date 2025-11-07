@@ -901,13 +901,36 @@ class ValgAce:
         # Track completion status - must be defined before callbacks
         toolchange_complete = {'done': False, 'error': None}
         
+        # Shared function to complete toolchange (used in both paths)
+        def complete_toolchange_post():
+            """Execute post-toolchange and mark as complete"""
+            try:
+                self.logger.info(f"Executing post-toolchange: FROM={was} TO={tool}")
+                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                if self.toolhead:
+                    self.toolhead.wait_moves()
+                gcmd.respond_info(f"Tool changed from {was} to {tool}")
+                self.logger.info(f"Post-toolchange complete, marking toolchange as done")
+                toolchange_complete['done'] = True
+            except Exception as e:
+                error_msg = f"Post-toolchange error: {str(e)}"
+                self.logger.error(error_msg)
+                toolchange_complete['done'] = True
+                toolchange_complete['error'] = error_msg
+        
         def on_toolchange_complete():
             """Called when toolchange is fully complete"""
+            if toolchange_complete['done']:
+                self.logger.warning("on_toolchange_complete called multiple times")
+                return
             toolchange_complete['done'] = True
             self.logger.info(f"Toolchange complete: FROM={was} TO={tool}")
         
         def on_toolchange_error(error_msg):
             """Called when toolchange fails"""
+            if toolchange_complete['done']:
+                self.logger.warning(f"on_toolchange_error called after completion: {error_msg}")
+                return
             toolchange_complete['done'] = True
             toolchange_complete['error'] = error_msg
             self.logger.error(f"Toolchange failed: {error_msg}")
@@ -945,20 +968,35 @@ class ValgAce:
         else:
             # No previous tool, just park the new one
             # Use direct function call instead of G-code command
+            self.logger.info(f"Starting toolchange: was=-1, tool={tool}, park_in_progress={self._park_in_progress}")
             self._park_to_toolhead(tool)
-            if self.toolhead:
-                self.toolhead.wait_moves()
+            self.logger.info(f"After _park_to_toolhead: park_in_progress={self._park_in_progress}, park_error={self._park_error}")
+
            
             def after_park_delay():
-                self.logger.info(f"Parking delay complete for slot {tool}, executing post-toolchange")
-                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
-                if self.toolhead:
-                    self.toolhead.wait_moves()
-                gcmd.respond_info(f"Tool changed from {was} to {tool}")
-                on_toolchange_complete()
+                try:
+                    self.logger.info(f"Parking delay complete for slot {tool}, executing post-toolchange")
+                    complete_toolchange_post()
+                except Exception as e:
+                    error_msg = f"Error in after_park_delay: {str(e)}"
+                    self.logger.error(error_msg)
+                    on_toolchange_error(error_msg)
             
             # Monitor parking completion with blocking wait
+            parking_check_count = [0]  # Use list to allow modification in nested function
+            
             def check_parking_completion(eventtime):
+                parking_check_count[0] += 1
+                
+                # Check if already complete
+                if toolchange_complete['done']:
+                    self.logger.info(f"Parking completion check: already done (check #{parking_check_count[0]})")
+                    return self.reactor.NEVER
+                
+                # Log status periodically for debugging
+                if parking_check_count[0] % 10 == 0:
+                    self.logger.info(f"Parking check #{parking_check_count[0]}: park_in_progress={self._park_in_progress}, park_error={self._park_error}, park_index={self._park_index}")
+                
                 # Check if parking failed
                 if self._park_error:
                     error_msg = f"Parking failed for slot {tool}"
@@ -969,35 +1007,108 @@ class ValgAce:
                 
                 # Check if parking completed (changed from True to False)
                 if not self._park_in_progress:
-                    self.logger.info(f"Parking completed for slot {tool}, executing post-toolchange")
-                    after_park_delay()
+                    self.logger.info(f"Parking completed for slot {tool} (park_in_progress=False), executing post-toolchange (check #{parking_check_count[0]})")
+                    try:
+                        after_park_delay()
+                    except Exception as e:
+                        error_msg = f"Error in after_park_delay: {str(e)}"
+                        self.logger.error(error_msg)
+                        on_toolchange_error(error_msg)
                     return self.reactor.NEVER
                 
                 # Continue checking every 0.5 seconds
                 return eventtime + 0.5
             
-            # Start monitoring parking completion
-            self.reactor.register_timer(check_parking_completion, self.reactor.monotonic() + 0.5)
-        
-        # Block until toolchange is complete
-        # Use synchronous waiting with toolhead.dwell() to block G-code execution
-        if not self.toolhead:
-            raise self.gcode.error("Toolhead not initialized - cannot wait for toolchange completion")
-        
-        start_wait = self.reactor.monotonic()
-        max_wait_time = 60.0  # Maximum 60 seconds to wait
-        while not toolchange_complete['done']:
-            elapsed = self.reactor.monotonic() - start_wait
-            if elapsed > max_wait_time:
-                error_msg = f"Toolchange timeout after {elapsed:.1f}s"
+            # Start monitoring parking completion immediately
+            # Check if parking failed immediately
+            if self._park_error:
+                error_msg = f"Parking failed immediately for slot {tool}"
                 self.logger.error(error_msg)
                 gcmd.respond_raw(f"ACE Error: {error_msg}")
                 on_toolchange_error(error_msg)
+            # Check if parking is already complete (should not happen, but handle edge case)
+            elif not self._park_in_progress:
+                self.logger.warning(f"Parking already complete before starting timer? park_in_progress={self._park_in_progress}, calling after_park_delay directly")
+                try:
+                    after_park_delay()
+                except Exception as e:
+                    error_msg = f"Error in after_park_delay (immediate): {str(e)}"
+                    self.logger.error(error_msg)
+                    on_toolchange_error(error_msg)
+            else:
+                # Normal case: parking in progress, start monitoring timer
+                self.reactor.register_timer(check_parking_completion, self.reactor.monotonic() + 0.5)
+        
+        # Block until toolchange is complete
+        # In Klipper, we need to use toolhead.dwell() to block G-code execution
+        # while allowing reactor to process async events
+        if not self.toolhead:
+            raise self.gcode.error("Toolhead not initialized - cannot wait for toolchange completion")
+        
+        self.logger.info(f"Starting blocking wait for toolchange completion... (was={was}, tool={tool})")
+        start_wait = self.reactor.monotonic()
+        max_wait_time = 120.0  # Maximum 120 seconds to wait
+        last_park_status = self._park_in_progress  # Track parking status changes
+        
+        # Block G-code execution with periodic status checks
+        # Use toolhead.dwell() which allows reactor to process async events
+        check_count = 0
+        while not toolchange_complete['done']:
+            elapsed = self.reactor.monotonic() - start_wait
+            
+            # Check for parking status changes (directly in blocking loop)
+            # This handles cases where parking completes but timer hasn't fired yet
+            # This is a fallback mechanism in case the timer doesn't fire
+            current_park_status = self._park_in_progress
+            if last_park_status and not current_park_status:
+                # Parking status changed from True to False - parking completed
+                self.logger.info(f"Parking status changed to False in blocking loop (park_index: {self._park_index}, tool: {tool})")
+                last_park_status = current_park_status
+                
+                # If this is for our toolchange and completion not set, trigger completion manually
+                # This is a fallback in case the timer doesn't fire
+                if not toolchange_complete['done']:
+                    if was == -1:
+                        # No previous tool - parking is for new tool
+                        if self._park_index == tool or self._park_index == -1:
+                            self.logger.warning(f"Parking completed but toolchange_complete not set! Triggering completion manually (park_index: {self._park_index}, tool: {tool})")
+                            # Manually trigger completion as fallback
+                            try:
+                                # Wait a tiny bit to ensure _complete_parking() has finished
+                                self.toolhead.dwell(0.2)
+                                # Now execute post-toolchange
+                                complete_toolchange_post()
+                            except Exception as e:
+                                error_msg = f"Error in manual completion trigger: {str(e)}"
+                                self.logger.error(error_msg)
+                                on_toolchange_error(error_msg)
+                    elif was != -1 and tool != -1:
+                        # Previous tool exists - this is handled in _on_slot_ready_callback
+                        # Just log for debugging
+                        self.logger.debug(f"Parking completed for toolchange (was={was}, tool={tool}), completion should be handled by callback")
+            elif last_park_status != current_park_status:
+                last_park_status = current_park_status
+            
+            # Log status every second for debugging
+            check_count += 1
+            if check_count % 10 == 0:
+                self.logger.info(f"Waiting for toolchange... elapsed: {elapsed:.1f}s, park_in_progress: {self._park_in_progress}, park_error: {self._park_error}, done: {toolchange_complete['done']}, check_count: {check_count}")
+            
+            # Check for timeout
+            if elapsed > max_wait_time:
+                error_msg = f"Toolchange timeout after {elapsed:.1f}s (park_in_progress: {self._park_in_progress}, park_error: {self._park_error}, check_count: {check_count})"
+                self.logger.error(error_msg)
+                gcmd.respond_raw(f"ACE Error: {error_msg}")
+                if not toolchange_complete['done']:
+                    on_toolchange_error(error_msg)
                 break
             
-            # Use small dwell to allow other operations and check completion
-            # This blocks G-code execution until toolchange is complete
+            # Small dwell blocks G-code but allows reactor to process async events
+            # This is the key: toolhead.dwell() yields to reactor for async processing
+            # The reactor will process timers and callbacks during this dwell
             self.toolhead.dwell(0.1)
+        
+        self.logger.info(f"Blocking wait complete. done: {toolchange_complete['done']}, error: {toolchange_complete['error']}, final_park_in_progress: {self._park_in_progress}")
         
         # Check for errors
         if toolchange_complete['error']:
@@ -1056,24 +1167,28 @@ class ValgAce:
             # Park new tool using direct function call
             self.logger.info(f"Starting parking of new tool {tool} using direct function call")
             self._park_to_toolhead(tool)
-            if self.toolhead:
-                self.toolhead.wait_moves()
+
                     
             def after_park_delay():
-                self.logger.info(f"Parking delay complete for slot {tool}, executing post-toolchange")
                 try:
+                    self.logger.info(f"Parking delay complete for slot {tool}, executing post-toolchange (in callback)")
                     self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
                     if self.toolhead:
                         self.toolhead.wait_moves()
                     gcmd.respond_info(f"Tool changed from {was} to {tool}")
+                    self.logger.info(f"Post-toolchange complete in callback, calling on_complete")
                     on_complete()
                 except Exception as e:
-                    error_msg = f"Post-toolchange error: {str(e)}"
+                    error_msg = f"Error in after_park_delay (callback): {str(e)}"
                     self.logger.error(error_msg)
                     on_error(error_msg)
             
             # Monitor parking completion instead of fixed timeout
+            parking_check_count_cb = [0]  # Use list to allow modification in nested function
+            
             def check_parking_completion(eventtime):
+                parking_check_count_cb[0] += 1
+                
                 # Check if parking failed
                 if self._park_error:
                     error_msg = f"Parking failed for slot {tool}"
@@ -1082,10 +1197,19 @@ class ValgAce:
                     on_error(error_msg)
                     return self.reactor.NEVER
                 
+                # Log status periodically for debugging
+                if parking_check_count_cb[0] % 10 == 0:
+                    self.logger.info(f"Parking check (callback) #{parking_check_count_cb[0]}: park_in_progress={self._park_in_progress}, park_error={self._park_error}, park_index={self._park_index}")
+                
                 # Check if parking completed (changed from True to False)
                 if not self._park_in_progress:
-                    self.logger.info(f"Parking completed for slot {tool}, executing post-toolchange")
-                    after_park_delay()
+                    self.logger.info(f"Parking completed for slot {tool} (park_in_progress=False), executing post-toolchange (callback check #{parking_check_count_cb[0]})")
+                    try:
+                        after_park_delay()
+                    except Exception as e:
+                        error_msg = f"Error in after_park_delay: {str(e)}"
+                        self.logger.error(error_msg)
+                        on_error(error_msg)
                     return self.reactor.NEVER
                 
                 # Continue checking every 0.5 seconds
