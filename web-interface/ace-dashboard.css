@@ -74,6 +74,12 @@ body {
     color: #92400e;
 }
 
+.connection-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .btn-language {
     background: transparent;
     border: 2px solid #667eea;

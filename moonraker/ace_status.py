@@ -44,6 +44,22 @@ class AceStatus:
             ['POST'],
             self.handle_command_request
         )
+        # Connection control endpoints
+        self.server.register_endpoint(
+            "/server/ace/connect",
+            ['POST'],
+            self.handle_connect_request
+        )
+        self.server.register_endpoint(
+            "/server/ace/disconnect",
+            ['POST'],
+            self.handle_disconnect_request
+        )
+        self.server.register_endpoint(
+            "/server/ace/connection_status",
+            ['GET'],
+            self.handle_connection_status_request
+        )
         
         # Подписка на обновления статуса принтера
         self.server.register_event_handler(
@@ -218,6 +234,70 @@ class AceStatus:
             self.logger.error(f"Error handling ACE command request: {e}")
             return {"error": str(e)}
     
+    async def handle_connect_request(self, webrequest: WebRequest) -> Dict[str, Any]:
+        """Обработка запроса на включение автоподключения"""
+        try:
+            result = await self.klippy_apis.run_gcode("ACE_CONNECT")
+            return {"result": "success", "message": "Auto-connect enabled and connection attempt initiated"}
+        except Exception as e:
+            self.logger.error(f"Error enabling ACE auto-connect: {e}")
+            return {"error": str(e)}
+
+    async def handle_disconnect_request(self, webrequest: WebRequest) -> Dict[str, Any]:
+        """Обработка запроса на отключение автоподключения"""
+        try:
+            result = await self.klippy_apis.run_gcode("ACE_DISCONNECT")
+            return {"result": "success", "message": "Auto-connect disabled and device disconnected"}
+        except Exception as e:
+            self.logger.error(f"Error disabling ACE auto-connect: {e}")
+            return {"error": str(e)}
+
+    async def handle_connection_status_request(self, webrequest: WebRequest) -> Dict[str, Any]:
+        """Обработка запроса статуса подключения"""
+        try:
+            # Получаем данные напрямую из модуля ace через query_objects
+            try:
+                result = await self.klippy_apis.query_objects({'ace': None})
+                ace_data = result.get('ace')
+                
+                if ace_data and isinstance(ace_data, dict):
+                    # Извлекаем информацию о подключении
+                    connected = ace_data.get("connected", False)
+                    # Проверяем наличие информации о статусе автоподключения
+                    auto_connect_enabled = ace_data.get("_auto_connect_enabled", True)
+                    
+                    return {
+                        "result": "success",
+                        "connection_status": "connected" if connected else "disconnected",
+                        "auto_connect": "enabled" if auto_connect_enabled else "disabled"
+                    }
+                else:
+                    self.logger.debug("ACE data not found in query_objects response")
+            except Exception as e:
+                self.logger.debug(f"Could not get ACE data from query_objects: {e}")
+            
+            # Fallback: возвращаем информацию на основе кэшированного статуса
+            if self._last_status:
+                connected = self._last_status.get("connected", False)
+                auto_connect_enabled = self._last_status.get("_auto_connect_enabled", True)
+                return {
+                    "result": "success",
+                    "connection_status": "connected" if connected else "disconnected",
+                    "auto_connect": "enabled" if auto_connect_enabled else "disabled"
+                }
+            
+            # Если данных нет, возвращаем статус по умолчанию
+            self.logger.warning("No ACE connection data available, returning default status")
+            return {
+                "result": "success",
+                "connection_status": "disconnected",
+                "auto_connect": "enabled"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error getting ACE connection status: {e}")
+            return {"error": str(e)}
+
     async def _handle_status_update(self, status: Dict[str, Any]) -> None:
         """Обработка обновления статуса принтера"""
         try:

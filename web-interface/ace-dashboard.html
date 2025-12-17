@@ -24,7 +24,7 @@
                         <span>{{ wsConnected ? t('header.connected') : t('header.disconnected') }}</span>
                     </div>
                     <div class="connection-controls">
-                        <button @click="connectToACE" class="btn btn-primary" :disabled="aceConnectionStatus === 'connecting'">
+                        <button @click="connectToACE" class="btn btn-primary" :disabled="aceConnectionStatus === 'connecting' || aceConnectionStatus === 'connected'">
                             {{ t('connectionControls.connect') }}
                         </button>
                         <button @click="disconnectFromACE" class="btn btn-danger" :disabled="aceConnectionStatus !== 'connected'">

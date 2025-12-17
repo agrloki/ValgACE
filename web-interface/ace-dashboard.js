@@ -914,8 +914,16 @@ createApp({
                 if (result.error) {
                     console.error('ACE connection status error:', result.error);
                     this.aceConnectionStatus = 'disconnected';
+                } else if (result.result === 'success') {
+                    // Обновляем статус подключения на основе ответа API
+                    if (result.auto_connect === 'enabled') {
+                        this.aceConnectionStatus = result.connection_status;
+                    } else {
+                        // Если автоподключение отключено, считаем, что устройство отключено
+                        this.aceConnectionStatus = 'disconnected';
+                    }
                 } else {
-                    this.aceConnectionStatus = result.connected ? 'connected' : 'disconnected';
+                    this.aceConnectionStatus = 'disconnected';
                 }
             } catch (error) {
                 console.error('Error loading ACE connection status:', error);

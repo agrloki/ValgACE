@@ -25,6 +25,7 @@ class ValgAce:
     """
     def __init__(self, config):
         self.printer = config.get_printer()
+        self._auto_connect_enabled = True  # Flag to control automatic connection
         self.toolhead = None
         self.reactor = self.printer.get_reactor()
         self.gcode = self.printer.lookup_object('gcode')
@@ -146,6 +147,9 @@ class ValgAce:
     def _register_gcode_commands(self):
         commands = [
             ('ACE_DEBUG', self.cmd_ACE_DEBUG, "Debug connection"),
+            ('ACE_CONNECT', self.cmd_ACE_CONNECT, "Enable automatic connection"),
+            ('ACE_DISCONNECT', self.cmd_ACE_DISCONNECT, "Disable automatic connection and disconnect"),
+            ('ACE_CONNECTION_STATUS', self.cmd_ACE_CONNECTION_STATUS, "Get connection status"),
             ('ACE_STATUS', self.cmd_ACE_STATUS, "Get device status"),
             ('ACE_START_DRYING', self.cmd_ACE_START_DRYING, "Start drying"),
             ('ACE_STOP_DRYING', self.cmd_ACE_STOP_DRYING, "Stop drying"),
@@ -187,9 +191,11 @@ class ValgAce:
         return None
 
     def _connect_check(self, eventtime):
-        if not self._connected:
+        if self._auto_connect_enabled and not self._connected:
             self._connect()
-        return eventtime + 1.0
+        # Check connection status every second if auto-connect is enabled, otherwise check less frequently
+        check_interval = 1.0 if self._auto_connect_enabled else 10.0
+        return eventtime + check_interval
 
     def _connect(self) -> bool:
         if self._connected:
