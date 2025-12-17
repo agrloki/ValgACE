@@ -14,6 +14,15 @@ createApp({
                         connected: 'Подключено',
                         disconnected: 'Отключено'
                     },
+                    connectionControls: {
+                        connect: 'Подключить',
+                        disconnect: 'Отключить',
+                        status: {
+                            connected: 'ACE Подключено',
+                            disconnected: 'ACE Отключено',
+                            connecting: 'ACE Подключение...'
+                        }
+                    },
                     cards: {
                         deviceStatus: 'Статус устройства',
                         dryer: 'Управление сушкой',
@@ -88,6 +97,10 @@ createApp({
                         feedAssistAllOff: 'Feed assist выключен для всех слотов',
                         feedAssistAllOffError: 'Не удалось отключить feed assist',
                         refreshStatus: 'Статус обновлен',
+                        aceConnectSuccess: 'ACE успешно подключено',
+                        aceConnectError: 'Ошибка подключения к ACE: {error}',
+                        aceDisconnectSuccess: 'ACE успешно отключено',
+                        aceDisconnectError: 'Ошибка отключения от ACE: {error}',
                         validation: {
                             tempRange: 'Температура должна быть от 20 до 55°C',
                             durationMin: 'Длительность должна быть минимум 1 минута',
@@ -133,6 +146,15 @@ createApp({
                         connectionLabel: 'Status',
                         connected: 'Connected',
                         disconnected: 'Disconnected'
+                    },
+                    connectionControls: {
+                        connect: 'Connect',
+                        disconnect: 'Disconnect',
+                        status: {
+                            connected: 'ACE Connected',
+                            disconnected: 'ACE Disconnected',
+                            connecting: 'ACE Connecting...'
+                        }
                     },
                     cards: {
                         deviceStatus: 'Device Status',
@@ -208,6 +230,10 @@ createApp({
                         feedAssistAllOff: 'Feed assist disabled for all slots',
                         feedAssistAllOffError: 'Failed to disable feed assist',
                         refreshStatus: 'Status refreshed',
+                        aceConnectSuccess: 'ACE connected successfully',
+                        aceConnectError: 'ACE connection error: {error}',
+                        aceDisconnectSuccess: 'ACE disconnected successfully',
+                        aceDisconnectError: 'ACE disconnection error: {error}',
                         validation: {
                             tempRange: 'Temperature must be between 20 and 55°C',
                             durationMin: 'Duration must be at least 1 minute',
@@ -252,6 +278,7 @@ createApp({
             wsConnected: false,
             ws: null,
             apiBase: ACE_DASHBOARD_CONFIG?.apiBase || window.location.origin,
+            aceConnectionStatus: 'disconnected', // Статус подключения к ACE (connected, disconnected, connecting)
             
             // Device Status
             deviceStatus: {
@@ -301,6 +328,7 @@ createApp({
         this.connectWebSocket();
         this.loadStatus();
         this.updateDocumentTitle();
+        this.loadACEConnectionStatus(); // Загружаем статус подключения к ACE при инициализации
         
             // Auto-refresh
         const refreshInterval = ACE_DASHBOARD_CONFIG?.autoRefreshInterval || 5000;
@@ -309,6 +337,13 @@ createApp({
                 this.loadStatus();
             }
         }, refreshInterval);
+        
+        // Периодически обновляем статус подключения к ACE
+        setInterval(() => {
+            if (this.wsConnected) {
+                this.loadACEConnectionStatus();
+            }
+        }, 5000); // Обновляем статус подключения к ACE каждые 5 секунд
     },
     
     methods: {
@@ -810,6 +845,82 @@ createApp({
             setTimeout(() => {
                 this.notification.show = false;
             }, 3000);
+        }
+    },
+    
+    // Новые методы для управления подключением к ACE
+    methods: {
+        // ... существующие методы ...
+        
+        async connectToACE() {
+            try {
+                this.aceConnectionStatus = 'connecting';
+                const response = await fetch(`${this.apiBase}/server/ace/connect`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    this.showNotification(this.t('notifications.aceConnectSuccess') || 'ACE connected successfully', 'success');
+                    this.aceConnectionStatus = 'connected';
+                } else {
+                    this.showNotification(this.t('notifications.aceConnectError', { error: result.error || 'Unknown error' }) || `Failed to connect to ACE: ${result.error || 'Unknown error'}`, 'error');
+                    this.aceConnectionStatus = 'disconnected';
+                }
+            } catch (error) {
+                console.error('Error connecting to ACE:', error);
+                this.showNotification(this.t('notifications.aceConnectError', { error: error.message }) || `Connection error: ${error.message}`, 'error');
+                this.aceConnectionStatus = 'disconnected';
+            }
+        },
+        
+        async disconnectFromACE() {
+            try {
+                const response = await fetch(`${this.apiBase}/server/ace/disconnect`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    this.showNotification(this.t('notifications.aceDisconnectSuccess') || 'ACE disconnected successfully', 'success');
+                    this.aceConnectionStatus = 'disconnected';
+                } else {
+                    this.showNotification(this.t('notifications.aceDisconnectError', { error: result.error || 'Unknown error' }) || `Failed to disconnect from ACE: ${result.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error disconnecting from ACE:', error);
+                this.showNotification(this.t('notifications.aceDisconnectError', { error: error.message }) || `Disconnection error: ${error.message}`, 'error');
+            }
+        },
+        
+        async loadACEConnectionStatus() {
+            try {
+                const response = await fetch(`${this.apiBase}/server/ace/connection_status`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.error) {
+                    console.error('ACE connection status error:', result.error);
+                    this.aceConnectionStatus = 'disconnected';
+                } else {
+                    this.aceConnectionStatus = result.connected ? 'connected' : 'disconnected';
+                }
+            } catch (error) {
+                console.error('Error loading ACE connection status:', error);
+                this.aceConnectionStatus = 'disconnected';
+            }
         }
     }
 }).mount('#app');

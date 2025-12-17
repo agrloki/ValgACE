@@ -43,6 +43,37 @@ body {
     gap: 12px;
 }
 
+.connection-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ace-connection-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 20px;
+    background: #f3f4f6;
+}
+
+.ace-connection-status.connected {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.ace-connection-status.disconnected {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.ace-connection-status.connecting {
+    background: #fef3c7;
+    color: #92400e;
+}
+
 .btn-language {
     background: transparent;
     border: 2px solid #667eea;

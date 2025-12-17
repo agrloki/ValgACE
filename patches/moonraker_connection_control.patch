@@ -1,0 +1,128 @@
+diff --git a/moonraker/ace_status.py b/moonraker/ace_status.py
+index 8f8e6d2..a8c7f3b 100644
+--- a/moonraker/ace_status.py
++++ b/moonraker/ace_status.py
+@@ -29,6 +29,18 @@ class AceStatus:
+         # Получаем klippy_apis компонент
+         self.klippy_apis: APIComp = self.server.lookup_component('klippy_apis')
+         
++        # Получаем компонент ace для управления подключением
++        try:
++            self.ace_component = self.server.lookup_component('ace')
++        except Exception:
++            self.ace_component = None
++            self.logger.warning("ACE component not found, connection control endpoints will be limited")
++        
++        # Регистрация API эндпоинтов для управления подключением
++        self.server.register_endpoint(
++            "/server/ace/connect",
++            ['POST'],
++            self.handle_connect_request
++        )
++        self.server.register_endpoint(
++            "/server/ace/disconnect",
++            ['POST'],
++            self.handle_disconnect_request
++        )
++        self.server.register_endpoint(
++            "/server/ace/connection_status",
++            ['GET'],
++            self.handle_connection_status_request
++        )
++        
+         # Регистрация API эндпоинтов
+         self.server.register_endpoint(
+             "/server/ace/status",
+@@ -230,6 +242,48 @@ class AceStatus:
+                 self.server.send_event("ace:status_update", ace_data)
+         except Exception as e:
+             self.logger.debug(f"Error handling status update: {e}")
++    
++    async def handle_connect_request(self, webrequest: WebRequest) -> Dict[str, Any]:
++        """Обработка запроса на подключение к ACE"""
++        try:
++            if self.ace_component is None:
++                return {
++                    "success": False,
++                    "error": "ACE component not found"
++                }
++            
++            # Вызываем метод подключения из ace компонента
++            if hasattr(self.ace_component, '_connect'):
++                success = self.ace_component._connect()
++                if success:
++                    return {
++                        "success": True,
++                        "message": "ACE connected successfully"
++                    }
++                else:
++                    return {
++                        "success": False,
++                        "error": "Failed to connect to ACE"
++                    }
++            else:
++                return {
++                    "success": False,
++                    "error": "ACE component does not have _connect method"
++                }
++        except Exception as e:
++            self.logger.error(f"Error connecting to ACE: {e}")
++            return {
++                "success": False,
++                "error": str(e)
++            }
++    
++    async def handle_disconnect_request(self, webrequest: WebRequest) -> Dict[str, Any]:
++        """Обработка запроса на отключение от ACE"""
++        try:
++            if self.ace_component is None:
++                return {
++                    "success": False,
++                    "error": "ACE component not found"
++                }
++            
++            # Вызываем метод отключения из ace компонента
++            if hasattr(self.ace_component, '_disconnect'):
++                self.ace_component._disconnect()
++                return {
++                    "success": True,
++                    "message": "ACE disconnected successfully"
++                }
++            else:
++                return {
++                    "success": False,
++                    "error": "ACE component does not have _disconnect method"
++                }
++        except Exception as e:
++            self.logger.error(f"Error disconnecting from ACE: {e}")
++            return {
++                "success": False,
++                "error": str(e)
++            }
++    
++    async def handle_connection_status_request(self, webrequest: WebRequest) -> Dict[str, Any]:
++        """Обработка запроса статуса подключения к ACE"""
++        try:
++            if self.ace_component is None:
++                return {
++                    "connected": False,
++                    "error": "ACE component not found"
++                }
++            
++            # Проверяем статус подключения из ace компонента
++            connected = getattr(self.ace_component, '_connected', False)
++            connection_attempts = getattr(self.ace_component, '_connection_attempts', 0)
++            
++            return {
++                "connected": connected,
++                "connection_attempts": connection_attempts
++            }
++        except Exception as e:
++            self.logger.error(f"Error getting connection status: {e}")
++            return {
++                "connected": False,
++                "error": str(e)
++            }
+ 
+ def load_component(config: ConfigHelper) -> AceStatus:
+     return AceStatus(config)

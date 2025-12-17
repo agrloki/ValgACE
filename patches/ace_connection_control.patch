@@ -1,0 +1,71 @@
+--- extras/ace.py
++++ extras/ace.py
+@@ -26,6 +26,7 @@
+     """
+     def __init__(self, config):
+         self.printer = config.get_printer()
++        self._auto_connect_enabled = True  # Flag to control automatic connection
+         self.toolhead = None
+         self.reactor = self.printer.get_reactor()
+         self.gcode = self.printer.lookup_object('gcode')
+@@ -189,9 +189,11 @@
+ 
+     def _connect_check(self, eventtime):
+-        if not self._connected:
+-            self._connect()
+-        return eventtime + 1.0
++        if self._auto_connect_enabled and not self._connected:
++            self._connect()
++        # Check connection status every second if auto-connect is enabled, otherwise check less frequently
++        check_interval = 1.0 if self._auto_connect_enabled else 10.0
++        return eventtime + check_interval
+ 
+     def _connect(self) -> bool:
+         if self._connected:
+@@ -146,6 +146,9 @@
+     def _register_gcode_commands(self):
+         commands = [
+             ('ACE_DEBUG', self.cmd_ACE_DEBUG, "Debug connection"),
++            ('ACE_CONNECT', self.cmd_ACE_CONNECT, "Enable automatic connection"),
++            ('ACE_DISCONNECT', self.cmd_ACE_DISCONNECT, "Disable automatic connection and disconnect"),
++            ('ACE_CONNECTION_STATUS', self.cmd_ACE_CONNECTION_STATUS, "Get connection status"),
+             ('ACE_STATUS', self.cmd_ACE_STATUS, "Get device status"),
+             ('ACE_START_DRYING', self.cmd_ACE_START_DRYING, "Start drying"),
+             ('ACE_STOP_DRYING', self.cmd_ACE_STOP_DRYING, "Stop drying"),
+@@ -1215,6 +1215,39 @@
+         self.reactor.register_timer(check_parking_status, self.reactor.monotonic() + 0.5)
+ 
++    def cmd_ACE_CONNECT(self, gcmd):
++        """
++        Enable automatic connection to ACE device
++        Usage: ACE_CONNECT
++        """
++        self._auto_connect_enabled = True
++        gcmd.respond_info("Automatic connection enabled")
++        # Attempt to connect immediately when enabling auto-connect
++        if not self._connected:
++            self._connect()
++
++    def cmd_ACE_DISCONNECT(self, gcmd):
++        """
++        Disable automatic connection and disconnect from ACE device
++        Usage: ACE_DISCONNECT
++        """
++        self._auto_connect_enabled = False
++        if self._connected:
++            self._disconnect()
++        gcmd.respond_info("Automatic connection disabled and device disconnected")
++
++    def cmd_ACE_CONNECTION_STATUS(self, gcmd):
++        """
++        Get current connection status
++        Usage: ACE_CONNECTION_STATUS
++        """
++        status = "connected" if self._connected else "disconnected"
++        auto_status = "enabled" if self._auto_connect_enabled else "disabled"
++        gcmd.respond_info(f"Connection status: {status}, Auto-connect: {auto_status}")
++        self.logger.info(f"Connection status: {status}, Auto-connect: {auto_status}")
++
+ 
+ def load_config(config):
+     return ValgAce(config)
