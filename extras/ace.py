@@ -939,7 +939,7 @@ class ValgAce:
                 
                 # Wait for parking to complete (check self._park_in_progress)
                 self.logger.info(f"Waiting for parking to complete (slot {tool})")
-                timeout = self.reactor.monotonic() + 30.0  # 30 second timeout for parking
+                timeout = self.reactor.monotonic() + 60.0  # 60 second timeout for parking
                 while self._park_in_progress:
                     if self._park_error:
                         gcmd.respond_raw(f"ACE Error: Parking failed for slot {tool}")
@@ -972,7 +972,7 @@ class ValgAce:
             
             # Wait for parking to complete (check self._park_in_progress)
             self.logger.info(f"Waiting for parking to complete (slot {tool})")
-            timeout = self.reactor.monotonic() + 30.0  # 30 second timeout for parking
+            timeout = self.reactor.monotonic() + 60.0  # 60 second timeout for parking
             while self._park_in_progress:
                 if self._park_error:
                     gcmd.respond_raw(f"ACE Error: Parking failed for slot {tool}")
