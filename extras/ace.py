@@ -9,7 +9,6 @@ from typing import Optional, Dict, Any, Callable
 # Check for required libraries and raise an error if they are not available
 try:
     import serial
-    import serial.tools.list_ports
     from serial import SerialException
 except ImportError:
     serial = None
@@ -28,9 +27,22 @@ class ValgAce:
         self.toolhead = None
         self.reactor = self.printer.get_reactor()
         self.gcode = self.printer.lookup_object('gcode')
-        # Initialize logger
+        
+        # Initialize logger first
         self.logger = logging.getLogger('ace')
         self._name = 'ace'
+        
+        # Initialize filament sensor
+        self.filament_sensor_name = config.get('filament_sensor', None)
+        self.filament_sensor = None
+        if self.filament_sensor_name:
+            try:
+                self.filament_sensor = self.printer.lookup_object(f'filament_switch_sensor {self.filament_sensor_name}')
+                self.logger.info(f"Filament sensor '{self.filament_sensor_name}' found and connected")
+            except Exception as e:
+                self.logger.warning(f"Filament sensor '{self.filament_sensor_name}' not found: {str(e)}")
+                self.filament_sensor = None
+        
         # Optional dependency: save_variables
         try:
             save_vars = self.printer.lookup_object('save_variables')
@@ -49,11 +61,10 @@ class ValgAce:
         self._read_timeout = config.getfloat('read_timeout', 0.1)
         self._write_timeout = config.getfloat('write_timeout', 0.5)
         self._max_queue_size = config.getint('max_queue_size', 20)
+        # Устройство выбирается только из конфигурации
+        # Device is selected only from configuration
+        self.serial_name = config.get('serial', '/dev/ttyACM0')
 
-        # Автопоиск устройства
-        # Auto-detect device
-        default_serial = self._find_ace_device()
-        self.serial_name = config.get('serial', default_serial or '/dev/ttyACM0')
         self.baud = config.getint('baud', 115200)
 
         # Параметры конфигурации
@@ -66,6 +77,9 @@ class ValgAce:
         self.max_dryer_temperature = config.getint('max_dryer_temperature', 55)
         self.disable_assist_after_toolchange = config.getboolean('disable_assist_after_toolchange', True)
         self.infinity_spool_mode = config.getboolean ('infinity_spool_mode', False)
+        
+        # Добавляем возможность привязки к сенсору филамента
+        # Optional filament sensor integration
 
         # Состояние устройства
         # Device state
@@ -162,29 +176,10 @@ class ValgAce:
             ('ACE_INFINITY_SPOOL', self.cmd_ACE_INFINITY_SPOOL, "Change tool when current spool is empty"),
             ('ACE_SET_INFINITY_SPOOL_ORDER', self.cmd_ACE_SET_INFINITY_SPOOL_ORDER, "Set infinity spool slot order"),
             ('ACE_FILAMENT_INFO', self.cmd_ACE_FILAMENT_INFO, "Show filament info"),
+            ('ACE_CHECK_FILAMENT_SENSOR', self.cmd_ACE_CHECK_FILAMENT_SENSOR, "Check filament sensor status"),
         ]
         for name, func, desc in commands:
             self.gcode.register_command(name, func, desc=desc)
-
-    def _find_ace_device(self) -> Optional[str]:
-        """
-        Автоматический поиск устройства ACE по VID/PID или описанию
-        :return: Путь к порту устройства или None, если устройство не найдено
-        """
-        ACE_IDS = {
-            'VID:PID': [(0x28e9, 0x018a)],
-            'DESCRIPTION': ['ACE', 'BunnyAce', 'DuckAce']
-        }
-        for port in serial.tools.list_ports.comports():
-            if hasattr(port, 'vid') and hasattr(port, 'pid'):
-                if (port.vid, port.pid) in ACE_IDS['VID:PID']:
-                    self.logger.info(f"Found ACE device by VID/PID at {port.device}")
-                    return port.device
-            if any(name in (port.description or '') for name in ACE_IDS['DESCRIPTION']):
-                self.logger.info(f"Found ACE device by description at {port.device}")
-                return port.device
-        self.logger.info("No ACE device found by auto-detection")
-        return None
 
     def _connect_check(self, eventtime):
         if not self._connected:
@@ -282,6 +277,15 @@ class ValgAce:
         else:
             dryer_normalized = {}
         
+        # Получаем статус сенсора филамента, если он настроен
+        filament_sensor_status = None
+        if self.filament_sensor:
+            try:
+                filament_sensor_status = self.filament_sensor.get_status(eventtime)
+            except Exception as e:
+                self.logger.warning(f"Error getting filament sensor status: {str(e)}")
+                filament_sensor_status = {"filament_detected": False, "enabled": False}
+        
         return {
             'status': self._info.get('status', 'unknown'),
             'model': self._info.get('model', ''),
@@ -295,7 +299,8 @@ class ValgAce:
             'feed_assist_slot': self._feed_assist_index,  # Индекс слота с активным feed assist (-1 = выключен)
             'dryer': dryer_normalized,
             'dryer_status': dryer_normalized,
-            'slots': self._info.get('slots', [])
+            'slots': self._info.get('slots', []),
+            'filament_sensor': filament_sensor_status
         }
 
     def _calc_crc(self, buffer: bytes) -> int:
@@ -682,6 +687,27 @@ class ValgAce:
                 output.append(f"  RFID: {rfid_text}")
                 output.append("")
             
+            # Filament Sensor Status
+            if self.filament_sensor:
+                try:
+                    eventtime = self.reactor.monotonic()
+                    sensor_status = self.filament_sensor.get_status(eventtime)
+                    
+                    filament_detected = sensor_status.get('filament_detected', False)
+                    sensor_enabled = sensor_status.get('enabled', False)
+                    
+                    output.append("=== Filament Sensor ===")
+                    if filament_detected:
+                        output.append("Status: filament detected")
+                    else:
+                        output.append("Status: filament not detected")
+                    output.append(f"Enabled: {'Yes' if sensor_enabled else 'No'}")
+                    output.append("")
+                except Exception as e:
+                    output.append("=== Filament Sensor ===")
+                    output.append(f"Error reading sensor: {str(e)}")
+                    output.append("")
+            
             gcmd.respond_info("\n".join(output))
         except Exception as e:
             self.logger.info(f"Status output error: {str(e)}")
@@ -696,15 +722,35 @@ class ValgAce:
                 request["params"] = json.loads(params)
             
             def callback(response):
-                # Выводим сырой JSON ответ без форматирования
-                gcmd.respond_info(json.dumps(response, indent=2))
+                # Специальная обработка для метода get_status
+                if method == 'get_status' and 'result' in response:
+                    # Добавляем информацию о датчике филамента к результату
+                    eventtime = self.reactor.monotonic()
+                    response_with_filament = response.copy()
+                    response_with_filament['result'] = response['result'].copy()
+                    
+                    # Добавляем информацию о датчике филамента
+                    filament_sensor_status = None
+                    if self.filament_sensor:
+                        try:
+                            filament_sensor_status = self.filament_sensor.get_status(eventtime)
+                        except Exception as e:
+                            self.logger.warning(f"Error getting filament sensor status: {str(e)}")
+                            filament_sensor_status = {"filament_detected": False, "enabled": False}
+                    
+                    response_with_filament['result']['filament_sensor'] = filament_sensor_status
+                    
+                    # Выводим дополненный результат
+                    gcmd.respond_info(json.dumps(response_with_filament, indent=2))
+                else:
+                    # Выводим обычный ответ для других методов
+                    gcmd.respond_info(json.dumps(response, indent=2))
             
             self.send_request(request, callback)
         except Exception as e:
             self.logger.info(f"Debug command error: {str(e)}")
             gcmd.respond_raw(f"Error: {str(e)}")
             return
-
     def cmd_ACE_FILAMENT_INFO(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         try:
@@ -718,24 +764,45 @@ class ValgAce:
         except Exception as e:
             self.logger.info(f"Filament info error: {str(e)}")
             self.gcode.respond_info('Error: ' + str(e))
-
+ 
+    def cmd_ACE_CHECK_FILAMENT_SENSOR(self, gcmd):
+        """Command to check the filament sensor status"""
+        if self.filament_sensor:
+            try:
+                eventtime = self.reactor.monotonic()
+                sensor_status = self.filament_sensor.get_status(eventtime)
+                
+                filament_detected = sensor_status.get('filament_detected', False)
+                sensor_enabled = sensor_status.get('enabled', False)
+                
+                if filament_detected:
+                    gcmd.respond_info("Filament sensor: filament detected")
+                else:
+                    gcmd.respond_info("Filament sensor: filament not detected")
+                    
+                gcmd.respond_info(f"Filament sensor: {'enabled' if sensor_enabled else 'disabled'}")
+            except Exception as e:
+                gcmd.respond_info(f"Error checking filament sensor: {str(e)}")
+        else:
+            gcmd.respond_info("No filament sensor configured")
+ 
     def cmd_ACE_START_DRYING(self, gcmd):
-        temperature = gcmd.get_int('TEMP', minval=20, maxval=self.max_dryer_temperature)
-        duration = gcmd.get_int('DURATION', 240, minval=1)
-        def callback(response):
-            if response.get('code', 0) != 0:
-                gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
-            else:
-                gcmd.respond_info(f"Drying started at {temperature}°C for {duration} minutes")
-        self.send_request({
-            "method": "drying",
-            "params": {
-                "temp": temperature,
-                "fan_speed": 7000,
-                "duration": duration 
-            }
-        }, callback)
-
+         temperature = gcmd.get_int('TEMP', minval=20, maxval=self.max_dryer_temperature)
+         duration = gcmd.get_int('DURATION', 240, minval=1)
+         def callback(response):
+             if response.get('code', 0) != 0:
+                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
+             else:
+                 gcmd.respond_info(f"Drying started at {temperature}°C for {duration} minutes")
+         self.send_request({
+             "method": "drying",
+             "params": {
+                 "temp": temperature,
+                 "fan_speed": 7000,
+                 "duration": duration
+             }
+         }, callback)
+ 
     def cmd_ACE_STOP_DRYING(self, gcmd):
         def callback(response):
             if response.get('code', 0) != 0:
@@ -743,7 +810,7 @@ class ValgAce:
             else:
                 gcmd.respond_info("Drying stopped")
         self.send_request({"method": "drying_stop"}, callback)
-
+ 
     def cmd_ACE_ENABLE_FEED_ASSIST(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         def callback(response):
@@ -754,7 +821,7 @@ class ValgAce:
                 gcmd.respond_info(f"Feed assist enabled for slot {index}")
                 self.dwell(0.3, lambda: None)
         self.send_request({"method": "start_feed_assist", "params": {"index": index}}, callback)
-
+ 
     def cmd_ACE_DISABLE_FEED_ASSIST(self, gcmd):
         index = gcmd.get_int('INDEX', self._feed_assist_index, minval=0, maxval=3)
         def callback(response):
@@ -765,7 +832,7 @@ class ValgAce:
                 gcmd.respond_info(f"Feed assist disabled for slot {index}")
                 self.dwell(0.3, lambda: None)
         self.send_request({"method": "stop_feed_assist", "params": {"index": index}}, callback)
-
+ 
     def _park_to_toolhead(self, index: int):
         # Set parking flag BEFORE sending request to ensure timers see it
         self._park_in_progress = True
@@ -791,7 +858,7 @@ class ValgAce:
                 self.logger.info(f"Feed assist started for slot {index}, count: {self._last_assist_count}")
             self.dwell(0.3, lambda: None)
         self.send_request({"method": "start_feed_assist", "params": {"index": index}}, callback)
-
+ 
     def cmd_ACE_PARK_TO_TOOLHEAD(self, gcmd):
         if self._park_in_progress:
             gcmd.respond_raw("Already parking to toolhead")
@@ -801,7 +868,7 @@ class ValgAce:
             self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={index}")
             return
         self._park_to_toolhead(index)
-
+ 
     def cmd_ACE_FEED(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         length = gcmd.get_int('LENGTH', minval=1)
@@ -814,7 +881,7 @@ class ValgAce:
             "params": {"index": index, "length": length, "speed": speed}
         }, callback)
         self.dwell((length / speed) + 0.1, lambda: None)
-
+ 
     def cmd_ACE_UPDATE_FEEDING_SPEED(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         speed = gcmd.get_int('SPEED', self.feed_speed, minval=1)
@@ -826,7 +893,7 @@ class ValgAce:
             "params": {"index": index, "speed": speed}
         }, callback)
         self.dwell(0.5, lambda: None)
-
+ 
     def cmd_ACE_STOP_FEED(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         def callback(response):
@@ -839,7 +906,7 @@ class ValgAce:
             "params": {"index": index},
             },callback)
         self.dwell(0.5, lambda: None)
-
+ 
     def cmd_ACE_RETRACT(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         length = gcmd.get_int('LENGTH', minval=1)
@@ -854,7 +921,7 @@ class ValgAce:
         }, callback)
         # Use async dwell instead of blocking pdwell
         self.dwell((length / speed) + 0.1, lambda: None)
-
+ 
     def cmd_ACE_UPDATE_RETRACT_SPEED(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         speed = gcmd.get_int('SPEED', self.retract_speed, minval=1)
@@ -866,7 +933,7 @@ class ValgAce:
             "params": {"index": index, "speed": speed}
         }, callback)
         self.dwell(0.5, lambda: None)
-
+ 
     def cmd_ACE_STOP_RETRACT(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         def callback(response):
@@ -879,19 +946,19 @@ class ValgAce:
             "params": {"index": index},
             },callback)
         self.dwell(0.5, lambda: None)
-
+ 
     def cmd_ACE_CHANGE_TOOL(self, gcmd):
         tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
         was = self.variables.get('ace_current_index', -1)
-
+ 
         if was == tool:
             gcmd.respond_info(f"Tool already set to {tool}")
             return
-
+ 
         if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
             self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
             return
-
+ 
         self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
         self._park_is_toolchange = True
         self._park_previous_tool = was
@@ -899,11 +966,11 @@ class ValgAce:
             self.toolhead.wait_moves()
         self.variables['ace_current_index'] = tool
         self._save_variable('ace_current_index', tool)
-
+ 
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
-
+ 
         if was != -1:
             # Retract current tool first
             self.send_request({
@@ -992,7 +1059,7 @@ class ValgAce:
             if self.toolhead:
                 self.toolhead.wait_moves()
             gcmd.respond_info(f"Tool changed from {was} to {tool}")
-
+ 
     def cmd_ACE_SET_INFINITY_SPOOL_ORDER(self, gcmd):
         """Set the order of slots for infinity spool mode"""
         order_str = gcmd.get('ORDER', '')
@@ -1039,7 +1106,7 @@ class ValgAce:
         except Exception as e:
             self.logger.error(f"Error setting infinity spool order: {str(e)}")
             gcmd.respond_raw(f"Error: {str(e)}")
-
+ 
     def cmd_ACE_INFINITY_SPOOL(self, gcmd):
         was = self.variables.get('ace_current_index', -1)
         infsp_status = self.infinity_spool_mode
@@ -1214,7 +1281,6 @@ class ValgAce:
         
         # Register monitoring timer
         self.reactor.register_timer(check_parking_status, self.reactor.monotonic() + 0.5)
-
 
 def load_config(config):
     return ValgAce(config)
