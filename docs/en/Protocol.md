@@ -4,12 +4,7 @@ Anycubic ACE Pro Protocol
 Transport
 =========
 
-The ACE Pro talks over USB using a USB CDC device, with no flow control or data
-integrity checking. It seems to share a single ringle buffer for input and
-output, and sending packets too fast may drop data. Sending packets before
-waiting for a response may lose output the printer was sending. The maximum
-safe amount to send within a small time span size seems to be 1024 bytes, but
-this may change in the future.
+The ACE Pro talks over USB using a USB CDC device, with no flow control or data integrity checking. It seems to share a single ringle buffer for input and output, and sending packets too fast may drop data. Sending packets before waiting for a response may lose output the printer was sending. The maximum safe amount to send within a small time span size seems to be 1024 bytes, but this may change in the future.
 
 Framing
 =======
@@ -23,20 +18,11 @@ Each JSON command is packed in a frame of the following format:
 - Any number of bytes, ignored for now (do not add)
 - 1 byte: 0xFE
 
-The ACE will disconnect and reconnect if no frame has been completely sent 3
-seconds, regardless of whether the frame data has a valid length or CRC. The
-keepalive does disregard data from the previous connection: Frames can be split
-across multiple connections.
+The ACE will disconnect and reconnect if no frame has been completely sent 3 seconds, regardless of whether the frame data has a valid length or CRC. The keepalive does disregard data from the previous connection: Frames can be split across multiple connections.
 
-The header is two bytes, so in the case of one of the bytes getting corrupted
-the frame will be ignored, unless the frame contains 0xFF 0xAA in it. If the
-header gets corrupted and frame contains 0xFF 0xAA in it the ACE may freeze for
-a while trying to read a large frame. You can try and prevent this by
-re-generating a payload until the CRC does not match 0xFF 0xAA (little endian).
+The header is two bytes, so in the case of one of the bytes getting corrupted the frame will be ignored, unless the frame contains 0xFF 0xAA in it. If the header gets corrupted and frame contains 0xFF 0xAA in it the ACE may freeze for a while trying to read a large frame. You can try and prevent this by re-generating a payload until the CRC does not match 0xFF 0xAA (little endian).
 
-If a long frame (greater than 1024 bytes) is requested either by accident or on
-purpose, the ACE seems to freeze and enter an unrecoverable state. No amount of
-data send to complete the frame's payload unfreezes the machine.
+If a long frame (greater than 1024 bytes) is requested either by accident or on purpose, the ACE seems to freeze and enter an unrecoverable state. No amount of data send to complete the frame's payload unfreezes the machine.
 
 RPC
 ===
@@ -56,18 +42,14 @@ Each response is sent from the ACE containing the following JSON data:
 - code: Method-specific return code
 - msg: Method-specific message
 
-Make sure to lock access to the ACE when sending a request and reading a
-response. It's easy to overlook this if you have a background thread that
-works to keep the connection alive by sending a command every second.
+Make sure to lock access to the ACE when sending a request and reading a response. It's easy to overlook this if you have a background thread that works to keep the connection alive by sending a command every second.
 
 Methods
 =======
 
-This section documents the methods you can call and the data you'll get
-back. For values not known, static values are listed.
+This section documents the methods you can call and the data you'll get back. For values not known, static values are listed.
 
-This is not a comprehensive API documentation as we don't control the
-firmware or have any authority over the ACE or its future updates.
+This is not a comprehensive API documentation as we don't control the firmware or have any authority over the ACE or its future updates.
 
 enable_rfid
 -----------
@@ -332,3 +314,63 @@ Response data:
 
 Response params:
 - None
+
+ace_connect
+-----------
+
+Request params:
+- None
+
+Response data:
+- msg: "success"
+- code: 0
+
+Response params:
+- None
+
+ace_disconnect
+--------------
+
+Request params:
+- None
+
+Response data:
+- msg: "success"
+- code: 0
+
+Response params:
+- None
+
+ace_connection_status
+---------------------
+
+Request params:
+- None
+
+Response data:
+- msg: "connected" or "disconnected"
+- code: 0
+
+Response params:
+- status: "connected" or "disconnected"
+- model: "Anycubic Color Engine Pro" (when connected)
+- firmware: "V1.3.84" (when connected, version may vary)
+- serial_port: "/dev/serial/by-id/..." (when disconnected)
+- baud_rate: 115200 (when disconnected)
+
+check_filament_sensor
+---------------------
+
+Request params:
+- None
+
+Response data:
+- msg: "success"
+- code: 0
+
+Response params:
+- filament_detected: boolean (true/false)
+- sensor_enabled: boolean (true/false)
+- sensor_status: "detected"/"not_detected"/"disabled"
+
+---

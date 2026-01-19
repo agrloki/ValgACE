@@ -94,6 +94,46 @@ ACE_INFINITY_SPOOL
 For complete user guide with examples, scenarios, and integration guides, please refer to:
 - **[Russian User Guide](../USER_GUIDE.md)** - Full documentation in Russian
 
+## Connection Management
+
+### Connection Management Commands
+
+ValgACE supports commands for managing the connection to the device:
+
+#### `ACE_CONNECT`
+Command to connect to the ACE device if it was disconnected.
+
+**Example:**
+```gcode
+ACE_CONNECT
+```
+
+#### `ACE_DISCONNECT`
+Command to force disconnect from the ACE device.
+
+**Example:**
+```gcode
+ACE_DISCONNECT
+```
+
+#### `ACE_CONNECTION_STATUS`
+Command to check the current connection status with the device.
+
+**Example:**
+```gcode
+ACE_CONNECTION_STATUS
+```
+
+#### `ACE_CHECK_FILAMENT_SENSOR`
+Command to check the status of an external filament sensor (if configured in the configuration).
+
+**Example:**
+```gcode
+ACE_CHECK_FILAMENT_SENSOR
+```
+
+These commands are useful for diagnosing connection problems and monitoring device status.
+
 ---
 
 *Last updated: 2025*

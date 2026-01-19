@@ -502,6 +502,8 @@ pip3 install pyserial
 3. ✅ Настройте параметры в [Конфигурации](CONFIGURATION.md)
 4. ✅ Установите [веб-интерфейс Dashboard](../web-interface/README.md) для удобного управления
 5. ✅ Протестируйте базовые команды
+6. ✅ Протестируйте команды управления соединением: `ACE_CONNECT`, `ACE_DISCONNECT`, `ACE_CONNECTION_STATUS`
+7. ✅ Настройте и протестируйте внешний датчик филамента (если используется) с командой `ACE_CHECK_FILAMENT_SENSOR`
 
 ---
 

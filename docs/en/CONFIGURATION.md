@@ -35,6 +35,7 @@ park_hit_count: 5
 - `disable_assist_after_toolchange` - Disable feed assist after tool change (default: True)
 - `infinity_spool_mode` - Enable infinity spool mode (default: False)
   - Requires setting slot order via `ACE_SET_INFINITY_SPOOL_ORDER ORDER="..."`
+- `filament_sensor` - External filament sensor name for integration with ACE module (default: not set)
 
 ### Timeouts
 - `response_timeout` - Response timeout in seconds (default: 2.0)
@@ -57,4 +58,3 @@ For complete configuration documentation with examples and recommendations, plea
 ---
 
 *Last updated: 2025*
-

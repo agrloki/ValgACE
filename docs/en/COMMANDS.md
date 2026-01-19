@@ -30,6 +30,12 @@ Complete list of all available G-code commands for controlling the Anycubic Colo
 - `ACE_START_DRYING TEMP=<20-55> DURATION=<minutes>` - Start drying
 - `ACE_STOP_DRYING` - Stop drying
 
+### Connection
+- `ACE_DISCONNECT` - Force disconnect from device
+- `ACE_CONNECT` - Connect to device
+- `ACE_CONNECTION_STATUS` - Check connection status
+- `ACE_CHECK_FILAMENT_SENSOR` - Check filament sensor status (if configured)
+
 ### Debug
 - `ACE_DEBUG METHOD=<method> PARAMS=<json>` - Debug command
 
@@ -51,4 +57,3 @@ For complete command documentation with examples, parameters, and usage notes, p
 ---
 
 *Last updated: 2025*
-

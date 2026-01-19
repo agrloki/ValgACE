@@ -46,6 +46,12 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 ✅ **Klipper Integration**
 - Full G-code macro support
 - Asynchronous command processing
+
+✅ **Connection Management**
+- Connection control commands (ACE_CONNECT, ACE_DISCONNECT, ACE_CONNECTION_STATUS)
+- External filament sensor support
+- Sensor status check command (ACE_CHECK_FILAMENT_SENSOR)
+
 - Compatibility with existing configurations
 
 ## System Requirements

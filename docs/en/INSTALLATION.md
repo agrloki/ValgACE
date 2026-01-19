@@ -396,6 +396,8 @@ After successful installation:
 2. ✅ Study the [Commands Reference](COMMANDS.md)
 3. ✅ Configure parameters in [Configuration](CONFIGURATION.md)
 4. ✅ Test basic commands
+5. ✅ Test connection management commands: `ACE_CONNECT`, `ACE_DISCONNECT`, `ACE_CONNECTION_STATUS`
+6. ✅ Configure and test external filament sensor (if used) with command `ACE_CHECK_FILAMENT_SENSOR`
 
 ---
 

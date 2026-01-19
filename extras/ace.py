@@ -87,6 +87,7 @@ class ValgAce:
         self._callback_map = {}
         self._request_id = 0
         self._connected = False
+        self._manually_disconnected = False  # Track if disconnected by user command
         self._connection_attempts = 0
         self._max_connection_attempts = 5
 
@@ -177,26 +178,43 @@ class ValgAce:
             ('ACE_SET_INFINITY_SPOOL_ORDER', self.cmd_ACE_SET_INFINITY_SPOOL_ORDER, "Set infinity spool slot order"),
             ('ACE_FILAMENT_INFO', self.cmd_ACE_FILAMENT_INFO, "Show filament info"),
             ('ACE_CHECK_FILAMENT_SENSOR', self.cmd_ACE_CHECK_FILAMENT_SENSOR, "Check filament sensor status"),
+            ('ACE_DISCONNECT', self.cmd_ACE_DISCONNECT, "Force disconnect device"),
+            ('ACE_CONNECT', self.cmd_ACE_CONNECT, "Connect to device"),
+            ('ACE_CONNECTION_STATUS', self.cmd_ACE_CONNECTION_STATUS, "Check connection status"),
         ]
         for name, func, desc in commands:
             self.gcode.register_command(name, func, desc=desc)
 
     def _connect_check(self, eventtime):
-        if not self._connected:
+        # Only auto-connect if the device is not connected and hasn't been manually disconnected
+        if not self._connected and not self._manually_disconnected:
+            # Try to connect
             self._connect()
         return eventtime + 1.0
 
     def _connect(self) -> bool:
         if self._connected:
             return True
+            
+        # Ensure any existing connection is properly closed
+        if self._serial and self._serial.is_open:
+            try:
+                self._serial.close()
+            except:
+                pass
+            self._serial = None
+            
         for attempt in range(self._max_connection_attempts):
             try:
+                self.logger.info(f"Attempting to connect to ACE at {self.serial_name} (attempt {attempt + 1}/{self._max_connection_attempts})")
+                
                 self._serial = serial.Serial(
                     port=self.serial_name,
                     baudrate=self.baud,
                     timeout=0,
                     write_timeout=self._write_timeout
                 )
+                
                 if self._serial.is_open:
                     self._connected = True
                     self._info['status'] = 'ready'
@@ -209,6 +227,7 @@ class ValgAce:
 
                     self.send_request({"method": "get_info"}, info_callback)
 
+                    # Register timers if not already registered
                     if self._reader_timer is None:
                         self._reader_timer = self.reactor.register_timer(self._reader_loop, self.reactor.NOW)
                     if self._writer_timer is None:
@@ -216,27 +235,77 @@ class ValgAce:
                         
                     self.logger.info("Connection established successfully")
                     return True
+                else:
+                    # Close the serial port if it wasn't opened properly
+                    if self._serial:
+                        self._serial.close()
+                        self._serial = None
             except SerialException as e:
                 self.logger.info(f"Connection attempt {attempt + 1} failed: {str(e)}")
+                if self._serial:
+                    try:
+                        self._serial.close()
+                    except:
+                        pass
+                    self._serial = None
                 self.dwell(1.0, lambda: None)
+            except Exception as e:
+                self.logger.error(f"Unexpected error during connection: {str(e)}")
+                if self._serial:
+                    try:
+                        self._serial.close()
+                    except:
+                        pass
+                    self._serial = None
+                self.dwell(1.0, lambda: None)
+                
         self.logger.info("Failed to connect to ACE device")
         return False
 
     def _disconnect(self):
+        """Gracefully disconnect from the device and stop all timers"""
         if not self._connected:
             return
-        self._connected = False
+            
+        self.logger.info("Disconnecting from ACE device...")
+        
+        # Stop all timers
         if self._reader_timer:
             self.reactor.unregister_timer(self._reader_timer)
             self._reader_timer = None
         if self._writer_timer:
             self.reactor.unregister_timer(self._writer_timer)
             self._writer_timer = None
+            
+        # Close serial connection
         try:
             if self._serial and self._serial.is_open:
                 self._serial.close()
         except Exception as e:
-            self.logger.info(f"Disconnect error: {str(e)}")
+            self.logger.error(f"Error closing serial connection: {str(e)}")
+        finally:
+            self._serial = None
+        
+        # Update connection status
+        self._connected = False
+        self._info['status'] = 'disconnected'
+        
+        # Clear any pending requests
+        try:
+            while not self._queue.empty():
+                _, callback = self._queue.get_nowait()
+                if callback:
+                    try:
+                        callback({'error': 'Device disconnected'})
+                    except Exception as e:
+                        self.logger.debug(f"Error in callback during disconnect: {str(e)}")
+        except Exception as e:
+            self.logger.debug(f"Error clearing request queue: {str(e)}")
+        
+        # Clear callback map
+        self._callback_map.clear()
+        
+        self.logger.info("ACE device disconnected successfully")
 
     def _save_variable(self, name: str, value):
         """Safely save variable if save_variables module is available"""
@@ -253,6 +322,8 @@ class ValgAce:
             raise self.printer.config_error("Toolhead not found in ValgAce module")
 
     def _handle_disconnect(self):
+        # When klipper disconnects, reset the manually disconnected flag so auto-reconnect can work after restart
+        self._manually_disconnected = False
         self._disconnect()
 
     def get_status(self, eventtime):
@@ -554,11 +625,15 @@ class ValgAce:
 
 
     def _reconnect(self):
+        # During automatic reconnect, reset the manually disconnected flag
+        self._manually_disconnected = False
         self._disconnect()
         self.dwell(1.0, lambda: None)
         self._connect()
 
     def _reset_connection(self):
+        # During connection reset, reset the manually disconnected flag
+        self._manually_disconnected = False
         self._disconnect()
         self.dwell(1.0, lambda: None)
         self._connect()
@@ -1059,7 +1134,68 @@ class ValgAce:
             if self.toolhead:
                 self.toolhead.wait_moves()
             gcmd.respond_info(f"Tool changed from {was} to {tool}")
- 
+     
+    def cmd_ACE_DISCONNECT(self, gcmd):
+        """G-code command to force disconnect from the device"""
+        try:
+            if self._connected:
+                self._manually_disconnected = True  # Mark as manually disconnected
+                self._disconnect()
+                gcmd.respond_info("ACE device disconnected successfully")
+                self.logger.info("Device manually disconnected via ACE_DISCONNECT command")
+            else:
+                gcmd.respond_info("ACE device is already disconnected")
+        except Exception as e:
+            self.logger.error(f"Error during forced disconnect: {str(e)}")
+            gcmd.respond_raw(f"Error disconnecting: {str(e)}")
+
+    def cmd_ACE_CONNECT(self, gcmd):
+        """G-code command to connect to the device"""
+        try:
+            if self._connected:
+                gcmd.respond_info("ACE device is already connected")
+            else:
+                self._manually_disconnected = False  # Reset the manually disconnected flag
+                # Cancel any existing connection timer
+                if hasattr(self, '_connect_timer') and self._connect_timer:
+                    self.reactor.unregister_timer(self._connect_timer)
+                    self._connect_timer = None
+                
+                # Attempt immediate connection
+                success = self._connect()
+                
+                if success:
+                    gcmd.respond_info("ACE device connected successfully")
+                    self.logger.info("Device manually connected via ACE_CONNECT command")
+                else:
+                    gcmd.respond_raw("Failed to connect to ACE device")
+                    self.logger.error("Manual connection attempt failed")
+        except Exception as e:
+            self.logger.error(f"Error during manual connect: {str(e)}")
+            gcmd.respond_raw(f"Error connecting: {str(e)}")
+
+    def cmd_ACE_CONNECTION_STATUS(self, gcmd):
+        """G-code command to check connection status"""
+        try:
+            status = "connected" if self._connected else "disconnected"
+            gcmd.respond_info(f"ACE Connection Status: {status}")
+            
+            if self._connected:
+                # Provide additional connection details
+                try:
+                    model = self._info.get('model', 'Unknown')
+                    firmware = self._info.get('firmware', 'Unknown')
+                    gcmd.respond_info(f"Device: {model}, Firmware: {firmware}")
+                except Exception:
+                    gcmd.respond_info("Device: connected (details unavailable)")
+                    
+            else:
+                gcmd.respond_info(f"Serial Port: {self.serial_name}")
+                gcmd.respond_info(f"Baud Rate: {self.baud}")
+        except Exception as e:
+            self.logger.error(f"Error checking connection status: {str(e)}")
+            gcmd.respond_raw(f"Error checking status: {str(e)}")
+
     def cmd_ACE_SET_INFINITY_SPOOL_ORDER(self, gcmd):
         """Set the order of slots for infinity spool mode"""
         order_str = gcmd.get('ORDER', '')
