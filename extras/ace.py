@@ -78,6 +78,11 @@ class ValgAce:
         self.disable_assist_after_toolchange = config.getboolean('disable_assist_after_toolchange', True)
         self.infinity_spool_mode = config.getboolean ('infinity_spool_mode', False)
         
+        # Новые параметры для агрессивной парковки
+        self.aggressive_parking = config.getboolean('aggressive_parking', False)
+        self.max_parking_distance = config.getint('max_parking_distance', 100)
+        self.parking_speed = config.getint('parking_speed', 10)
+        
         # Добавляем возможность привязки к сенсору филамента
         # Optional filament sensor integration
 
@@ -1022,18 +1027,176 @@ class ValgAce:
             },callback)
         self.dwell(0.5, lambda: None)
  
+    def _sensor_based_parking(self, index: int):
+        """
+        Alternative parking algorithm using filament sensor detection.
+        Starts feeding filament and monitors the sensor. When the sensor triggers,
+        stops the feed and switches to the traditional parking algorithm.
+        """
+        if not self.filament_sensor:
+            self.logger.error("Filament sensor not configured for sensor-based parking")
+            return False
+            
+        self.logger.info(f"Starting sensor-based parking for slot {index}")
+        
+        # Set parking flags
+        self._park_in_progress = True
+        self._park_error = False
+        self._park_index = index
+        self._park_start_time = self.reactor.monotonic()
+        
+        # Calculate timeout: (max_parking_distance / parking_speed) + 10 seconds
+        timeout_duration = (self.max_parking_distance / self.parking_speed) + 10
+        self.logger.info(f"Sensor-based parking timeout: {timeout_duration:.1f}s")
+        
+        # Start feeding filament at parking_speed
+        def start_feed_callback(response):
+            if response.get('code', 0) != 0:
+                self.logger.error(f"Error starting feed for sensor-based parking: {response.get('msg', 'Unknown error')}")
+                self._park_in_progress = False
+                self._park_error = True
+                return
+                
+            self.logger.info(f"Started feeding filament for slot {index} at speed {self.parking_speed}")
+            
+            # Start monitoring the filament sensor
+            self._monitor_filament_sensor_for_parking(index, timeout_duration)
+        
+        # Send the feed command
+        self.send_request({
+            "method": "feed_filament",
+            "params": {"index": index, "length": self.max_parking_distance, "speed": self.parking_speed}
+        }, start_feed_callback)
+        
+        return True
+
+    def _monitor_filament_sensor_for_parking(self, index: int, timeout_duration: float):
+        """
+        Monitor the filament sensor during parking and switch to traditional algorithm when triggered.
+        """
+        start_time = self.reactor.monotonic()
+        
+        def check_sensor(eventtime):
+            if not self._park_in_progress:
+                # Parking was cancelled or completed elsewhere
+                return self.reactor.NEVER
+                
+            # Check if timeout has been reached
+            elapsed = eventtime - start_time
+            if elapsed > timeout_duration:
+                self.logger.error(f"Sensor-based parking timeout for slot {index} after {elapsed:.1f}s")
+                # Stop feeding filament
+                self.send_request({
+                    "method": "stop_feed_filament",
+                    "params": {"index": index}
+                }, lambda r: None)
+                self._park_in_progress = False
+                self._park_error = True
+                return self.reactor.NEVER
+            
+            # Check filament sensor status
+            try:
+                sensor_status = self.filament_sensor.get_status(eventtime)
+                filament_detected = sensor_status.get('filament_detected', False)
+                
+                if filament_detected:
+                    self.logger.info(f"Filament detected by sensor for slot {index}, switching to traditional parking")
+                    # Stop feeding filament
+                    self.send_request({
+                        "method": "stop_feed_filament",
+                        "params": {"index": index}
+                    }, lambda r: None)
+                    
+                    # Switch to traditional parking algorithm
+                    self._switch_to_traditional_parking(index)
+                    return self.reactor.NEVER
+                else:
+                    # Continue monitoring
+                    return eventtime + 0.1  # Check every 100ms
+            except Exception as e:
+                self.logger.error(f"Error checking filament sensor during parking: {str(e)}")
+                # Stop feeding filament
+                self.send_request({
+                    "method": "stop_feed_filament",
+                    "params": {"index": index}
+                }, lambda r: None)
+                self._park_in_progress = False
+                self._park_error = True
+                return self.reactor.NEVER
+        
+        # Register the timer to monitor the sensor
+        self.reactor.register_timer(check_sensor, self.reactor.NOW)
+
+    def _switch_to_traditional_parking(self, index: int):
+        """
+        Switch from sensor-based parking to traditional parking algorithm.
+        Actually, once sensor detects filament, parking is considered complete.
+        We just need to activate feed assist and complete the parking process.
+        """
+        self.logger.info(f"Completing parking after sensor detection for slot {index}")
+        
+        # Since the sensor has detected the filament, we consider parking complete
+        # Just activate feed assist and complete the process
+        def enable_assist_callback(response):
+            if response.get('code', 0) != 0:
+                self.logger.error(f"Error enabling feed assist after sensor detection: {response.get('msg', 'Unknown error')}")
+                self._park_error = True
+            else:
+                self._feed_assist_index = index
+                self.logger.info(f"Feed assist enabled for slot {index} after sensor-based parking")
+            
+            # Complete the parking process immediately
+            self._complete_parking()
+        
+        # Activate feed assist for the slot
+        self.send_request({
+            "method": "start_feed_assist",
+            "params": {"index": index}
+        }, enable_assist_callback)
+
+    def _park_to_toolhead(self, index: int):
+        # Check if aggressive parking should be used
+        if self.aggressive_parking:
+            self.logger.info(f"Using aggressive parking method for slot {index}")
+            self._sensor_based_parking(index)
+        else:
+            # Set parking flag BEFORE sending request to ensure timers see it
+            self._park_in_progress = True
+            self._park_error = False  # Reset error flag
+            self._park_index = index
+            self._assist_hit_count = 0
+            self._park_start_time = self.reactor.monotonic()
+            self._park_count_increased = False  # Track if count actually increased
+            
+            self.logger.info(f"Starting traditional parking for slot {index}")
+            
+            def callback(response):
+                if response.get('code', 0) != 0:
+                    if 'result' in response and 'msg' in response['result']:
+                        self.logger.error(f"ACE Error starting feed assist: {response['result']['msg']}")
+                    else:
+                        self.logger.error(f"ACE Error starting feed assist: {response.get('msg', 'Unknown error')}")
+                    # Reset parking flag on error since device won't start feeding
+                    self._park_in_progress = False
+                    self.logger.error(f"Parking aborted for slot {index} due to start_feed_assist error")
+                else:
+                    self._last_assist_count = response.get('result', {}).get('feed_assist_count', 0)
+                    self.logger.info(f"Feed assist started for slot {index}, count: {self._last_assist_count}")
+                self.dwell(0.3, lambda: None)
+            self.send_request({"method": "start_feed_assist", "params": {"index": index}}, callback)
+
     def cmd_ACE_CHANGE_TOOL(self, gcmd):
         tool = gcmd.get_int('TOOL', minval=-1, maxval=3)
         was = self.variables.get('ace_current_index', -1)
- 
+
         if was == tool:
             gcmd.respond_info(f"Tool already set to {tool}")
             return
- 
+
         if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
             self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
             return
- 
+
         self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
         self._park_is_toolchange = True
         self._park_previous_tool = was
@@ -1041,11 +1204,11 @@ class ValgAce:
             self.toolhead.wait_moves()
         self.variables['ace_current_index'] = tool
         self._save_variable('ace_current_index', tool)
- 
+
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
- 
+
         if was != -1:
             # Retract current tool first
             self.send_request({
