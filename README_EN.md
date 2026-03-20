@@ -4,6 +4,8 @@
 
 **ValgACE** - Klipper module providing full control over the Anycubic Color Engine Pro (ACE Pro) automatic filament changer device.
 
+**ace-solo** [ace-solo](https://github.com/agrloki/ace-solo) Standalone Python application for controlling Anycubic ACE Pro without Klipper.
+
 ## 📋 Table of Contents
 
 - [Description](#description)
@@ -22,8 +24,16 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 ### Project Status
 
 **Status:** Stable  
-**Confirmed on:** Creality K1, Kingroon KLP1, Kingroon KP3S Pro V2, custom Klipper 3D printers  
-**Based on:** [DuckACE](https://github.com/utkabobr/DuckACE) and [BunnyACE](https://github.com/BlackFrogKok/BunnyACE)
+**Confirmed on:** Sovol SV08, Kingroon KLP1, Kingroon KP3S Pro V2, custom Klipper 3D printers  
+**Based on:** [DuckACE](https://github.com/utkabobr/DuckACE)
+
+**Known Issues:** 
+- Infinity spool mode does not work properly. (It technically works, but requires a lot of effort and ritual dancing with a tambourine to use)
+
+**Future Plans:**
+- Combined parking mode. (combination of feed+feed assist) For printers with long distance from splitter to head and without filament sensor in the head.
+- Slot mapping. Ability to change the binding of slot index and real slot.
+- Fix infinity spool mode :)
 
 ## Features
 
@@ -52,7 +62,10 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 - External filament sensor support
 - Sensor status check command (ACE_CHECK_FILAMENT_SENSOR)
 
-- Compatibility with existing configurations
+✅ **REST API via Moonraker**
+- Get ACE status via HTTP API
+- Execute commands via REST endpoints
+- WebSocket subscription for status updates
 
 ## System Requirements
 
@@ -118,35 +131,57 @@ For more details, see [Installation Guide](docs/en/INSTALLATION.md#device-connec
 
 Full documentation is available in the `docs/` folder:
 
+**Russian Documentation:**
+- **[Installation](docs/INSTALLATION.md)** - detailed installation guide
+- **[User Guide](docs/USER_GUIDE.md)** - how to use ValgACE
+- **[Commands Reference](docs/COMMANDS.md)** - all available G-code commands
+- **[Configuration](docs/CONFIGURATION.md)** - parameter configuration
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - common issues and solutions
+- **[Protocol](docs/Protocol.md)** - technical protocol documentation (English)
+- **[Protocol (Russian)](docs/Protocol_ru.md)** - technical protocol documentation
+- **[Moonraker API](docs/MOONRAKER_API.md)** - Moonraker API integration and REST endpoints
+
+**English Documentation:**
 - **[Installation](docs/en/INSTALLATION.md)** - detailed installation guide
 - **[User Guide](docs/en/USER_GUIDE.md)** - how to use ValgACE
 - **[Commands Reference](docs/en/COMMANDS.md)** - all available G-code commands
 - **[Configuration](docs/en/CONFIGURATION.md)** - parameter configuration
 - **[Troubleshooting](docs/en/TROUBLESHOOTING.md)** - common issues and solutions
 - **[Protocol](docs/Protocol.md)** - technical protocol documentation
-
-**Russian Documentation:** Available in `docs/` folder (Russian language)
+- **[Moonraker API](docs/MOONRAKER_API.md)** - Moonraker API integration and REST endpoints (Russian)
 
 ## Web Interface
-![Web](/.github/img/valgace-web-en.png)
+![Web](/.github/img/valgace-web.png)
 
-A fully featured dashboard for ValgACE lives in the `web-interface/` directory. It includes a language toggle (English/Russian), live status updates, slot management, dryer controls, and quick actions.
+A ready-to-use web interface for ACE management is available in `web-interface/`:
 
-### Quick setup
+- **[ValgACE Dashboard](web-interface/README.md)** - full-featured web interface with Vue.js
+- Real-time device status display
+- Filament slot management (load, park, feed assist, feed, retract)
+- Drying control
+- WebSocket connection for real-time updates
+
+### Quick Dashboard Setup
 
 ```bash
-# Copy files to any host running Moonraker
+# Copy files
 mkdir -p ~/ace-dashboard
 cp ~/ValgACE/web-interface/ace-dashboard.* ~/ace-dashboard/
 
-# Start a simple HTTP server
+# Start HTTP server
 cd ~/ace-dashboard
 python3 -m http.server 8080
 ```
 
-Open `http://<printer-ip>:8080/ace-dashboard.html`
+Open in browser: `http://<printer-ip>:8080/ace-dashboard.html`
 
-For a production setup use nginx; see [`web-interface/nginx.conf.example`](web-interface/nginx.conf.example) and detailed installation steps in [`web-interface/README.md`](web-interface/README.md).
+**For permanent use, nginx installation is recommended** — see [installation instructions](docs/INSTALLATION.md#2-установка-веб-интерфейса-valgace-dashboard) and [nginx configuration example](web-interface/nginx.conf.example).
+
+Files:
+- `ace-dashboard.html` - main interface
+- `ace-dashboard.css` - styles
+- `ace-dashboard.js` - API logic
+- `ace-dashboard-config.js` - Moonraker address configuration
 
 ## Main Commands
 
@@ -176,6 +211,25 @@ ACE_INFINITY_SPOOL  # Auto change spool when empty
 
 Full command list available in [Commands Reference](docs/en/COMMANDS.md).
 
+## REST API
+
+After installation, REST API endpoints are available via Moonraker:
+
+```bash
+# Get ACE status
+curl http://localhost:7125/server/ace/status
+
+# Get slot information
+curl http://localhost:7125/server/ace/slots
+
+# Execute ACE command
+curl -X POST http://localhost:7125/server/ace/command \
+  -H "Content-Type: application/json" \
+  -d '{"command":"ACE_PARK_TO_TOOLHEAD","params":{"INDEX":0}}'
+```
+
+Detailed REST API documentation: [Moonraker API](docs/MOONRAKER_API.md)
+
 ## Support
 
 ### Discussions
@@ -194,14 +248,11 @@ Full command list available in [Commands Reference](docs/en/COMMANDS.md).
 
 ## Acknowledgments
 
-Special thanks to **@Nefelim4ag** (Timofey Titovets) for help in development and guidance in the right direction. 🙂
+Special thanks to **@Nefelim4ag** (Timofey Titovets) for the magical kick in the right direction. 🙂
 
 Project based on:
 - [DuckACE](https://github.com/utkabobr/DuckACE) by utkabobr
-- [BunnyACE](https://github.com/BlackFrogKok/BunnyACE) by BlackFrogKok
 
 ## License
 
 Project is distributed under [GNU GPL v3](LICENSE.md) license.
-
-
