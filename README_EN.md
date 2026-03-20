@@ -34,7 +34,6 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 
 **Future Plans:**
 - Combined parking mode. (combination of feed+feed assist) For printers with long distance from splitter to head and without filament sensor in the head.
-- Slot mapping. Ability to change the binding of slot index and real slot.
 - Fix infinity spool mode :)
 
 ## Features
@@ -63,6 +62,18 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 - Connection control commands (ACE_CONNECT, ACE_DISCONNECT, ACE_CONNECTION_STATUS)
 - External filament sensor support
 - Sensor status check command (ACE_CHECK_FILAMENT_SENSOR)
+- Reconnection command for error recovery (ACE_RECONNECT)
+- Configurable pause macro
+
+✅ **Slot Mapping**
+- Remap Klipper indexes (T0-T3) to physical device slots
+- Commands for getting, setting, and resetting mapping
+- Macro for batch slot configuration
+
+✅ **Aggressive Parking**
+- Alternative parking algorithm using filament sensor
+- Configurable parameters: max distance, speed, timeout
+- Suitable for printers with long filament path
 
 ✅ **REST API via Moonraker**
 - Get ACE status via HTTP API
@@ -209,6 +220,18 @@ ACE_STOP_DRYING
 # Infinity spool mode
 ACE_SET_INFINITY_SPOOL_ORDER ORDER="0,1,2,3"  # Set slot order
 ACE_INFINITY_SPOOL  # Auto change spool when empty
+
+# Slot mapping
+ACE_GET_SLOTMAPPING                 # Get current mapping
+ACE_SET_SLOTMAPPING KLIPPER_INDEX=0 ACE_INDEX=1  # Assign T0 -> slot 1
+ACE_RESET_SLOTMAPPING               # Reset to defaults
+SET_ALL_SLOTMAPPING S0=0 S1=1 S2=2 S3=3  # Batch configuration
+
+# Connection management
+ACE_RECONNECT                       # Reconnect on errors
+
+# Help
+ACE_GET_HELP                        # Display all commands
 ```
 
 Full command list available in [Commands Reference](docs/en/COMMANDS.md).

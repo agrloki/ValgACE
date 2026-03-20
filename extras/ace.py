@@ -97,6 +97,10 @@ class ValgAce:
         # Device state
         self._info = self._get_default_info()
         self._callback_map = {}
+        
+        # Отображение индексов в слоты (по умолчанию 0→0, 1→1, 2→2, 3→3)
+        # Index to slot mapping (default: 0→0, 1→1, 2→2, 3→3)
+        self.index_to_slot = [0, 1, 2, 3]
         self._request_id = 0
         self._connected = False
         self._manually_disconnected = False  # Track if disconnected by user command
@@ -174,6 +178,171 @@ class ValgAce:
             } for i in range(4)]
         }
 
+    def _init_slot_mapping(self):
+        """
+        Инициализация отображения индексов в слоты из переменных.
+        Если переменные отсутствуют, устанавливаются дефолтные значения (0→0, 1→1, 2→2, 3→3).
+        Initialize index to slot mapping from variables.
+        If variables are missing, default values are set (0→0, 1→1, 2→2, 3→3).
+        """
+        for i in range(4):
+            var_name = f'ace_index{i}_to_slot'
+            slot_value = self.variables.get(var_name, None)
+            
+            if slot_value is None:
+                # Переменная отсутствует, создаём с дефолтным значением
+                # Variable missing, create with default value
+                self.index_to_slot[i] = i
+                self._save_variable(var_name, i)
+                self.logger.info(f"Slot mapping: initialized {var_name} = {i}")
+            else:
+                # Переменная существует, проверяем и используем её значение
+                # Variable exists, validate and use its value
+                try:
+                    slot_int = int(slot_value)
+                    if 0 <= slot_int <= 3:
+                        self.index_to_slot[i] = slot_int
+                        self.logger.info(f"Slot mapping: loaded {var_name} = {slot_int}")
+                    else:
+                        # Значение вне диапазона, сбрасываем в дефолт
+                        # Value out of range, reset to default
+                        self.logger.warning(f"Slot mapping: {var_name} = {slot_value} out of range (0-3), resetting to {i}")
+                        self.index_to_slot[i] = i
+                        self._save_variable(var_name, i)
+                except (ValueError, TypeError):
+                    # Ошибка преобразования, сбрасываем в дефолт
+                    # Conversion error, reset to default
+                    self.logger.warning(f"Slot mapping: invalid {var_name} = {slot_value}, resetting to {i}")
+                    self.index_to_slot[i] = i
+                    self._save_variable(var_name, i)
+        
+        self.logger.info(f"Slot mapping initialized: {self.index_to_slot}")
+
+    def _get_real_slot(self, index: int) -> int:
+        """
+        Преобразовать индекс (из Klipper) в реальный слот устройства.
+        Convert index (from Klipper) to real device slot.
+        
+        :param index: Индекс из Klipper (0-3)
+        :return: Реальный слот устройства (0-3)
+        """
+        if 0 <= index <= 3:
+            return self.index_to_slot[index]
+        return index
+
+    def _set_slot_mapping(self, index: int, slot: int) -> bool:
+        """
+        Установить отображение индекса в слот.
+        Set index to slot mapping.
+        
+        :param index: Индекс (0-3)
+        :param slot: Слот (0-3)
+        :return: True если успешно, False если ошибка
+        """
+        if not (0 <= index <= 3):
+            return False
+        if not (0 <= slot <= 3):
+            return False
+        
+        self.index_to_slot[index] = slot
+        var_name = f'ace_index{index}_to_slot'
+        self._save_variable(var_name, slot)
+        self.logger.info(f"Slot mapping updated: index {index} → slot {slot}")
+        return True
+
+    def _reset_slot_mapping(self):
+        """
+        Сбросить отображение слотов в дефолтные значения (0→0, 1→1, 2→2, 3→3).
+        Reset slot mapping to default values (0→0, 1→1, 2→2, 3→3).
+        """
+        for i in range(4):
+            self.index_to_slot[i] = i
+            var_name = f'ace_index{i}_to_slot'
+            self._save_variable(var_name, i)
+        self.logger.info("Slot mapping reset to defaults: [0, 1, 2, 3]")
+
+    def _validate_index(self, index: int) -> tuple:
+        """
+        Валидация INDEX и преобразование в реальный слот.
+        Validate INDEX and convert to real slot.
+        
+        :param index: Индекс из Klipper (0-3)
+        :return: Кортеж (real_slot, error_message)
+                 - real_slot: реальный слот устройства (0-3) если валиден, иначе -1
+                 - error_message: сообщение об ошибке если INDEX невалиден, иначе None
+        """
+        # Проверка диапазона INDEX
+        if not isinstance(index, int):
+            return -1, f"INDEX must be integer, got {type(index).__name__}"
+        
+        if index < 0 or index > 3:
+            return -1, f"INDEX {index} out of range (must be 0-3)"
+        
+        # Преобразование через маппинг
+        real_slot = self.index_to_slot[index]
+        
+        self.logger.debug(f"INDEX validation: {index} → Slot {real_slot}")
+        return real_slot, None
+
+    def _validate_slot_status(self, real_slot: int, required_status: str = 'ready') -> tuple:
+        """
+        Проверка статуса слота.
+        Check slot status.
+        
+        :param real_slot: Реальный слот устройства (0-3)
+        :param required_status: Требуемый статус ('ready', 'empty', etc.)
+        :return: Кортеж (is_valid, error_message)
+                 - is_valid: True если слот имеет требуемый статус
+                 - error_message: сообщение об ошибке если статус не соответствует
+        """
+        # Проверка подключения
+        if not self._connected:
+            return False, "ACE device not connected"
+        
+        # Проверка диапазона слота
+        if real_slot < 0 or real_slot > 3:
+            return False, f"Invalid slot {real_slot} (must be 0-3)"
+        
+        # Получение текущего статуса слота
+        try:
+            slots = self._info.get('slots', [])
+            if real_slot >= len(slots):
+                return False, f"Slot {real_slot} not found in device status"
+            
+            slot_info = slots[real_slot]
+            current_status = slot_info.get('status', 'unknown')
+            
+            if current_status != required_status:
+                return False, f"Slot {real_slot} status is '{current_status}', expected '{required_status}'"
+            
+            return True, None
+            
+        except Exception as e:
+            self.logger.error(f"Error checking slot {real_slot} status: {str(e)}")
+            return False, f"Error checking slot status: {str(e)}"
+
+    def _validate_index_for_operation(self, index: int, operation_name: str = "operation") -> tuple:
+        """
+        Комплексная валидация INDEX для операции (проверка INDEX + статуса слота).
+        Comprehensive INDEX validation for operation (INDEX check + slot status check).
+        
+        :param index: Индекс из Klipper (0-3)
+        :param operation_name: Название операции для сообщений об ошибках
+        :return: Кортеж (real_slot, error_message)
+                 - real_slot: реальный слот устройства если валиден, иначе None
+                 - error_message: сообщение об ошибке если валидация не прошла, иначе None
+        """
+        # Валидация INDEX
+        real_slot, error = self._validate_index(index)
+        if error:
+            return None, error
+        
+        # Проверка подключения устройства
+        if not self._connected:
+            return None, "ACE device not connected"
+        
+        return real_slot, None
+
     def _register_handlers(self):
         """
         Регистрация обработчиков событий принтера
@@ -206,6 +375,9 @@ class ValgAce:
             ('ACE_CONNECTION_STATUS', self.cmd_ACE_CONNECTION_STATUS, "Check connection status"),
             ('ACE_RECONNECT', self.cmd_ACE_RECONNECT, "Manually reset connection and clear error flags"),
             ('ACE_GET_HELP', self.cmd_ACE_GET_HELP, "Show all available ACE commands with descriptions"),
+            ('ACE_GET_SLOTMAPPING', self.cmd_ACE_GET_SLOTMAPPING, "Get current slot mapping"),
+            ('ACE_SET_SLOTMAPPING', self.cmd_ACE_SET_SLOTMAPPING, "Set slot mapping"),
+            ('ACE_RESET_SLOTMAPPING', self.cmd_ACE_RESET_SLOTMAPPING, "Reset slot mapping to defaults"),
         ]
         for name, func, desc in commands:
             self.gcode.register_command(name, func, desc=desc)
@@ -348,6 +520,10 @@ class ValgAce:
         self.toolhead = self.printer.lookup_object('toolhead')
         if self.toolhead is None:
             raise self.printer.config_error("Toolhead not found in ValgAce module")
+        
+        # Инициализация отображения слотов
+        # Initialize slot mapping
+        self._init_slot_mapping()
 
     def _handle_disconnect(self):
         # When klipper disconnects, reset the manually disconnected flag so auto-reconnect can work after restart
@@ -409,7 +585,8 @@ class ValgAce:
             'dryer': dryer_normalized,
             'dryer_status': dryer_normalized,
             'slots': self._info.get('slots', []),
-            'filament_sensor': filament_sensor_status
+            'filament_sensor': filament_sensor_status,
+            'slot_mapping': self.index_to_slot.copy()  # Отображение индексов в слоты
         }
 
     def _calc_crc(self, buffer: bytes) -> int:
@@ -949,6 +1126,13 @@ class ValgAce:
             return
     def cmd_ACE_FILAMENT_INFO(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
+        
+        # Валидация INDEX и преобразование в реальный слот
+        real_slot, error = self._validate_index_for_operation(index, "ACE_FILAMENT_INFO")
+        if error:
+            gcmd.respond_raw(f"ACE Error: {error}")
+            return
+        
         try:
             def callback(response):
                 if 'result' in response:
@@ -956,7 +1140,7 @@ class ValgAce:
                     self.gcode.respond_info(str(slot_info))
                 else:
                     self.gcode.respond_info('Error: No result in response')
-            self.send_request({"method": "get_filament_info", "params": {"index": index}}, callback)
+            self.send_request({"method": "get_filament_info", "params": {"index": real_slot}}, callback)
         except Exception as e:
             self.logger.info(f"Filament info error: {str(e)}")
             self.gcode.respond_info('Error: ' + str(e))
@@ -1009,63 +1193,109 @@ class ValgAce:
  
     def cmd_ACE_ENABLE_FEED_ASSIST(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
+        
+        # Валидация INDEX и преобразование в реальный слот
+        real_slot, error = self._validate_index_for_operation(index, "ACE_ENABLE_FEED_ASSIST")
+        if error:
+            gcmd.respond_raw(f"ACE Error: {error}")
+            return
+        
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
             else:
                 self._feed_assist_index = index
-                gcmd.respond_info(f"Feed assist enabled for slot {index}")
+                gcmd.respond_info(f"Feed assist enabled for index {index} (slot {real_slot})")
                 self.dwell(0.3, lambda: None)
-        self.send_request({"method": "start_feed_assist", "params": {"index": index}}, callback)
+        self.send_request({"method": "start_feed_assist", "params": {"index": real_slot}}, callback)
  
     def cmd_ACE_DISABLE_FEED_ASSIST(self, gcmd):
         index = gcmd.get_int('INDEX', self._feed_assist_index, minval=0, maxval=3)
+        
+        # Валидация INDEX и преобразование в реальный слот
+        real_slot, error = self._validate_index_for_operation(index, "ACE_DISABLE_FEED_ASSIST")
+        if error:
+            gcmd.respond_raw(f"ACE Error: {error}")
+            return
+        
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
             else:
                 self._feed_assist_index = -1
-                gcmd.respond_info(f"Feed assist disabled for slot {index}")
+                gcmd.respond_info(f"Feed assist disabled for index {index} (slot {real_slot})")
                 self.dwell(0.3, lambda: None)
-        self.send_request({"method": "stop_feed_assist", "params": {"index": index}}, callback)
+        self.send_request({"method": "stop_feed_assist", "params": {"index": real_slot}}, callback)
  
     def cmd_ACE_PARK_TO_TOOLHEAD(self, gcmd):
         if self._park_in_progress:
             gcmd.respond_raw("Already parking to toolhead")
             return
+        
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
-        if self._info['slots'][index]['status'] != 'ready':
+        
+        # Валидация INDEX и преобразование в реальный слот
+        real_slot, error = self._validate_index_for_operation(index, "ACE_PARK_TO_TOOLHEAD")
+        if error:
+            gcmd.respond_raw(f"ACE Error: {error}")
+            return
+        
+        # Проверка статуса слота (должен быть 'ready')
+        is_valid, error = self._validate_slot_status(real_slot, 'ready')
+        if not is_valid:
             self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={index}")
             return
-        self._park_to_toolhead(index)
+        
+        self._park_to_toolhead(real_slot)
  
     def cmd_ACE_FEED(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         length = gcmd.get_int('LENGTH', minval=1)
         speed = gcmd.get_int('SPEED', self.feed_speed, minval=1)
+        
+        # Валидация INDEX и преобразование в реальный слот
+        real_slot, error = self._validate_index_for_operation(index, "ACE_FEED")
+        if error:
+            gcmd.respond_raw(f"ACE Error: {error}")
+            return
+        
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
         self.send_request({
             "method": "feed_filament",
-            "params": {"index": index, "length": length, "speed": speed}
+            "params": {"index": real_slot, "length": length, "speed": speed}
         }, callback)
         self.dwell((length / speed) + 0.1, lambda: None)
  
     def cmd_ACE_UPDATE_FEEDING_SPEED(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         speed = gcmd.get_int('SPEED', self.feed_speed, minval=1)
+        
+        # Валидация INDEX и преобразование в реальный слот
+        real_slot, error = self._validate_index_for_operation(index, "ACE_UPDATE_FEEDING_SPEED")
+        if error:
+            gcmd.respond_raw(f"ACE Error: {error}")
+            return
+        
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
         self.send_request({
             "method": "update_feeding_speed",
-            "params": {"index": index, "speed": speed}
+            "params": {"index": real_slot, "speed": speed}
         }, callback)
         self.dwell(0.5, lambda: None)
  
     def cmd_ACE_STOP_FEED(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
+        
+        # Валидация INDEX и преобразование в реальный слот
+        real_slot, error = self._validate_index_for_operation(index, "ACE_STOP_FEED")
+        if error:
+            gcmd.respond_raw(f"ACE Error: {error}")
+            return
+        
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
@@ -1073,7 +1303,7 @@ class ValgAce:
                 gcmd.respond_info("Feed stopped")
         self.send_request({
             "method": "stop_feed_filament",
-            "params": {"index": index},
+            "params": {"index": real_slot},
             },callback)
         self.dwell(0.5, lambda: None)
  
@@ -1082,12 +1312,19 @@ class ValgAce:
         length = gcmd.get_int('LENGTH', minval=1)
         speed = gcmd.get_int('SPEED', self.retract_speed, minval=1)
         mode = gcmd.get_int('MODE', self.retract_mode, minval=0, maxval=1)
+        
+        # Валидация INDEX и преобразование в реальный слот
+        real_slot, error = self._validate_index_for_operation(index, "ACE_RETRACT")
+        if error:
+            gcmd.respond_raw(f"ACE Error: {error}")
+            return
+        
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
         self.send_request({
             "method": "unwind_filament",
-            "params": {"index": index, "length": length, "speed": speed, "mode": mode}
+            "params": {"index": real_slot, "length": length, "speed": speed, "mode": mode}
         }, callback)
         # Use async dwell instead of blocking pdwell
         self.dwell((length / speed) + 0.1, lambda: None)
@@ -1095,25 +1332,39 @@ class ValgAce:
     def cmd_ACE_UPDATE_RETRACT_SPEED(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
         speed = gcmd.get_int('SPEED', self.retract_speed, minval=1)
+        
+        # Валидация INDEX и преобразование в реальный слот
+        real_slot, error = self._validate_index_for_operation(index, "ACE_UPDATE_RETRACT_SPEED")
+        if error:
+            gcmd.respond_raw(f"ACE Error: {error}")
+            return
+        
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
         self.send_request({
             "method": "update_unwinding_speed",
-            "params": {"index": index, "speed": speed}
+            "params": {"index": real_slot, "speed": speed}
         }, callback)
         self.dwell(0.5, lambda: None)
  
     def cmd_ACE_STOP_RETRACT(self, gcmd):
         index = gcmd.get_int('INDEX', minval=0, maxval=3)
+        
+        # Валидация INDEX и преобразование в реальный слот
+        real_slot, error = self._validate_index_for_operation(index, "ACE_STOP_RETRACT")
+        if error:
+            gcmd.respond_raw(f"ACE Error: {error}")
+            return
+        
         def callback(response):
             if response.get('code', 0) != 0:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
             else:
-                gcmd.respond_info("Feed stopped")
+                gcmd.respond_info("Retract stopped")
         self.send_request({
             "method": "stop_unwind_filament",
-            "params": {"index": index},
+            "params": {"index": real_slot},
             },callback)
         self.dwell(0.5, lambda: None)
  
@@ -1378,7 +1629,12 @@ class ValgAce:
             gcmd.respond_info(f"Tool already set to {tool}")
             return
 
-        if tool != -1 and self._info['slots'][tool]['status'] != 'ready':
+        # Преобразуем индексы Klipper в реальные слоты устройства
+        # Convert Klipper indices to real device slots
+        real_tool = self._get_real_slot(tool) if tool != -1 else -1
+        real_was = self._get_real_slot(was) if was != -1 else -1
+
+        if tool != -1 and self._info['slots'][real_tool]['status'] != 'ready':
             self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
             return
 
@@ -1395,11 +1651,13 @@ class ValgAce:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
 
         if was != -1:
-            # Retract current tool first
+            # Retract current tool first (используем реальный слот)
+            # Retract current tool first (use real slot)
+            self.logger.info(f"Retracting from real slot {real_was} (Klipper index {was})")
             self.send_request({
                 "method": "unwind_filament",
                 "params": {
-                    "index": was,
+                    "index": real_was,
                     "length": self.toolchange_retract_length,
                     "speed": self.retract_speed
                 }
@@ -1412,31 +1670,32 @@ class ValgAce:
                 self.toolhead.dwell(retract_time)
             
             # Wait for slot to be ready (status changes to 'ready' after retraction)
-            self.logger.info(f"Waiting for slot {was} to be ready")
+            self.logger.info(f"Waiting for real slot {real_was} to be ready")
             timeout = self.reactor.monotonic() + 10.0  # 10 second timeout
-            while self._info['slots'][was]['status'] != 'ready':
+            while self._info['slots'][real_was]['status'] != 'ready':
                 if self.reactor.monotonic() > timeout:
-                    gcmd.respond_raw(f"ACE Error: Timeout waiting for slot {was} to be ready")
+                    gcmd.respond_raw(f"ACE Error: Timeout waiting for slot {real_was} to be ready")
                     return
                 if self.toolhead:
                     self.toolhead.dwell(1.0)
             
-            self.logger.info(f"Slot {was} is ready, parking new tool {tool}")
+            self.logger.info(f"Slot {real_was} is ready, parking new tool {tool} (real slot {real_tool})")
             
             if tool != -1:
-                # Park new tool to toolhead
-                self._park_to_toolhead(tool)
+                # Park new tool to toolhead (используем реальный слот)
+                # Park new tool to toolhead (use real slot)
+                self._park_to_toolhead(real_tool)
 
                 # Wait for parking to complete (check self._park_in_progress)
-                self.logger.info(f"Waiting for parking to complete (slot {tool})")
+                self.logger.info(f"Waiting for parking to complete (real slot {real_tool})")
                 timeout = self.reactor.monotonic() + self.max_parking_timeout  # max_parking_timeout seconds timeout for parking
                 while self._park_in_progress:
                     if self._connection_lost:
-                        gcmd.respond_raw(f"ACE Error: Connection lost during parking for slot {tool}")
+                        gcmd.respond_raw(f"ACE Error: Connection lost during parking for slot {real_tool}")
                         self._pause_print_if_needed()
                         return
                     if self._park_error:
-                        gcmd.respond_raw(f"ACE Error: Parking failed for slot {tool}")
+                        gcmd.respond_raw(f"ACE Error: Parking failed for slot {real_tool}")
                         return
                     if self.reactor.monotonic() > timeout:
                         gcmd.respond_raw(f"ACE Error: Timeout waiting for parking to complete ({self.max_parking_timeout}s)")
@@ -1453,7 +1712,7 @@ class ValgAce:
                 self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
                 if self.toolhead:
                     self.toolhead.wait_moves()
-                gcmd.respond_info(f"Tool changed from {was} to {tool}")
+                gcmd.respond_info(f"Tool changed from {was} to {tool} (real slot {real_tool})")
             else:
                 # Unloading only, no new tool
                 self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
@@ -1461,20 +1720,21 @@ class ValgAce:
                     self.toolhead.wait_moves()
                 gcmd.respond_info(f"Tool changed from {was} to {tool}")
         else:
-            # No previous tool, just park the new one
-            self.logger.info(f"Starting parking for slot {tool} (no previous tool)")
-            self._park_to_toolhead(tool)
+            # No previous tool, just park the new one (используем реальный слот)
+            # No previous tool, just park the new one (use real slot)
+            self.logger.info(f"Starting parking for real slot {real_tool} (Klipper index {tool}, no previous tool)")
+            self._park_to_toolhead(real_tool)
 
             # Wait for parking to complete (check self._park_in_progress)
-            self.logger.info(f"Waiting for parking to complete (slot {tool})")
+            self.logger.info(f"Waiting for parking to complete (real slot {real_tool})")
             timeout = self.reactor.monotonic() + self.max_parking_timeout  # max_parking_timeout seconds timeout for parking
             while self._park_in_progress:
                 if self._connection_lost:
-                    gcmd.respond_raw(f"ACE Error: Connection lost during parking for slot {tool}")
+                    gcmd.respond_raw(f"ACE Error: Connection lost during parking for slot {real_tool}")
                     self._pause_print_if_needed()
                     return
                 if self._park_error:
-                    gcmd.respond_raw(f"ACE Error: Parking failed for slot {tool}")
+                    gcmd.respond_raw(f"ACE Error: Parking failed for slot {real_tool}")
                     return
                 if self.reactor.monotonic() > timeout:
                     gcmd.respond_raw(f"ACE Error: Timeout waiting for parking to complete ({self.max_parking_timeout}s)")
@@ -1491,7 +1751,7 @@ class ValgAce:
             self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
             if self.toolhead:
                 self.toolhead.wait_moves()
-            gcmd.respond_info(f"Tool changed from {was} to {tool}")
+            gcmd.respond_info(f"Tool changed from {was} to {tool} (real slot {real_tool})")
      
     def cmd_ACE_DISCONNECT(self, gcmd):
         """G-code command to force disconnect from the device"""
@@ -1858,6 +2118,11 @@ Infinity Spool Mode:
   ACE_SET_INFINITY_SPOOL_ORDER - Set slot change order for infinity spool
   ACE_INFINITY_SPOOL        - Auto spool change on filament end
 
+Slot Mapping:
+  ACE_GET_SLOTMAPPING       - Get current slot mapping (index to slot)
+  ACE_SET_SLOTMAPPING       - Set slot mapping (INDEX=0-3 SLOT=0-3)
+  ACE_RESET_SLOTMAPPING     - Reset slot mapping to defaults (0→0, 1→1, 2→2, 3→3)
+
 Debug:
   ACE_DEBUG                 - Debug command for direct device interaction
 
@@ -1865,6 +2130,67 @@ Debug:
 
 """
         gcmd.respond_info(help_text)
+
+    def cmd_ACE_GET_SLOTMAPPING(self, gcmd):
+        """
+        Получить текущее отображение индексов в слоты.
+        Get current index to slot mapping.
+        
+        Формат вывода / Output format:
+        Slot Mapping:
+          Index 0 → Slot X
+          Index 1 → Slot X
+          Index 2 → Slot X
+          Index 3 → Slot X
+        """
+        output = ["=== Slot Mapping ==="]
+        for i in range(4):
+            output.append(f"  Index {i} → Slot {self.index_to_slot[i]}")
+        output.append("")
+        output.append(f"Current mapping: {self.index_to_slot}")
+        gcmd.respond_info("\n".join(output))
+
+    def cmd_ACE_SET_SLOTMAPPING(self, gcmd):
+        """
+        Установить отображение индекса в слот.
+        Set index to slot mapping.
+        
+        Параметры / Parameters:
+          INDEX=0-3  - Индекс из Klipper (T0-T3) / Index from Klipper (T0-T3)
+          SLOT=0-3   - Реальный слот устройства / Real device slot
+        """
+        index = gcmd.get_int('INDEX', minval=0, maxval=3)
+        slot = gcmd.get_int('SLOT', minval=0, maxval=3)
+        
+        # Валидация INDEX
+        real_index, error = self._validate_index(index)
+        if error:
+            gcmd.respond_raw(f"ACE Error: {error}")
+            return
+        
+        # Валидация SLOT
+        if slot < 0 or slot > 3:
+            gcmd.respond_raw(f"ACE Error: SLOT {slot} out of range (must be 0-3)")
+            return
+        
+        old_slot = self.index_to_slot[index]
+        
+        if self._set_slot_mapping(index, slot):
+            gcmd.respond_info(f"Slot mapping updated: Index {index} → Slot {slot} (was Slot {old_slot})")
+            gcmd.respond_info(f"Current mapping: {self.index_to_slot}")
+        else:
+            gcmd.respond_raw(f"Error: Failed to set slot mapping for index {index}")
+
+    def cmd_ACE_RESET_SLOTMAPPING(self, gcmd):
+        """
+        Сбросить отображение слотов в дефолтные значения.
+        Reset slot mapping to default values (0→0, 1→1, 2→2, 3→3).
+        """
+        old_mapping = self.index_to_slot.copy()
+        self._reset_slot_mapping()
+        gcmd.respond_info(f"Slot mapping reset to defaults")
+        gcmd.respond_info(f"  Old mapping: {old_mapping}")
+        gcmd.respond_info(f"  New mapping: {self.index_to_slot}")
 
 def load_config(config):
     return ValgAce(config)

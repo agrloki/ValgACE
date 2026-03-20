@@ -33,11 +33,18 @@ Complete list of all available G-code commands for controlling the Anycubic Colo
 ### Connection
 - `ACE_DISCONNECT` - Force disconnect from device
 - `ACE_CONNECT` - Connect to device
+- `ACE_RECONNECT` - Reset connection and clear error flags
 - `ACE_CONNECTION_STATUS` - Check connection status
 - `ACE_CHECK_FILAMENT_SENSOR` - Check filament sensor status (if configured)
 
 ### Debug
 - `ACE_DEBUG METHOD=<method> PARAMS=<json>` - Debug command
+- `ACE_GET_HELP` - Get help on available commands
+
+### Slot Mapping
+- `ACE_GET_SLOTMAPPING` - Get current slot mapping
+- `ACE_SET_SLOTMAPPING INDEX=<0-3> SLOT=<0-3>` - Set slot mapping
+- `ACE_RESET_SLOTMAPPING` - Reset slot mapping to defaults
 
 ### Infinity Spool
 - `ACE_SET_INFINITY_SPOOL_ORDER ORDER="<order>"` - Set slot order (e.g., `"0,1,2,3"` or `"0,1,none,3"`)
