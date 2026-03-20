@@ -6,6 +6,8 @@
 
 **ace-solo** [ace-solo](https://github.com/agrloki/ace-solo) Standalone Python application for controlling Anycubic ACE Pro without Klipper.
 
+**acepro-mmu-dashboard** [acepro-mmu-dashboard](https://github.com/ducati1198/acepro-mmu-dashboard) Alternative web interface by @ducati1198
+
 ## 📋 Table of Contents
 
 - [Description](#description)
@@ -252,6 +254,7 @@ Special thanks to **@Nefelim4ag** (Timofey Titovets) for the magical kick in the
 
 Project based on:
 - [DuckACE](https://github.com/utkabobr/DuckACE) by utkabobr
+- [BunnyACE](https://github.com/BlackFrogKok/BunnyACE) by BlackFrogKok
 
 ## License
 
