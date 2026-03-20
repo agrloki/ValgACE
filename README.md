@@ -5,6 +5,8 @@
 **ValgACE** - модуль для Klipper, обеспечивающий полное управление устройством автоматической смены филамента Anycubic Color Engine Pro (ACE Pro).
 
 **ace-solo** [ace-solo](https://github.com/agrloki/ace-solo) Автономное приложение на Python для управления Anycubic ACE Pro без использования Klipper.
+
+**acepro-mmu-dashboard** [acepro-mmu-dashboard](https://github.com/ducati1198/acepro-mmu-dashboard) Альтернативный вэб интерфейс от @ducati1198
 ## 📋 Содержание
 
 - [Описание](#описание)
