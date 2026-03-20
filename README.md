@@ -23,7 +23,7 @@ ValgACE представляет собой полнофункциональны
 ### Статус проекта
 
 **Статус:** Стабильная версия
-  
+
 **Подтверждено на:** Sovol SV08, Kingroon KLP1, Kingroon KP3S Pro V2, custom klipper 3d printers.
 
 **Основан на:** [DuckACE](https://github.com/utkabobr/DuckACE) 
@@ -251,7 +251,7 @@ python3 -m http.server 8080
 
 ## Благодарности
 
-Отдельная благодарность **@Nefelim4ag** (Timofey Titovets) за волшебный пендель направление в правильном направлении. 🙂
+Отдельная благодарность **@Nefelim4ag** (Timofey Titovets) за волшебный пендель в правильном направлении. 🙂
 
 Проект основан на:
 - [DuckACE](https://github.com/utkabobr/DuckACE) от utkabobr
