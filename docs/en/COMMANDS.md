@@ -7,7 +7,7 @@ Complete list of all available G-code commands for controlling the Anycubic Colo
 ## Quick Reference
 
 ### Status Commands
-- `ACE_STATUS` - Get device status
+- `ACE_STATUS` - Get device status (includes device status, dryer status, temperature, slot info, feed assist count, feed assist slot index, filament sensor status if configured, and slot mapping)
 - `ACE_FILAMENT_INFO INDEX=<0-3>` - Get filament info (requires RFID)
 
 ### Tool Management
@@ -34,12 +34,16 @@ Complete list of all available G-code commands for controlling the Anycubic Colo
 - `ACE_DISCONNECT` - Force disconnect from device
 - `ACE_CONNECT` - Connect to device
 - `ACE_RECONNECT` - Reset connection and clear error flags
-- `ACE_CONNECTION_STATUS` - Check connection status
+- `ACE_CONNECTION_STATUS` - Check connection status (shows additional info about connection loss if applicable)
 - `ACE_CHECK_FILAMENT_SENSOR` - Check filament sensor status (if configured)
 
 ### Debug
 - `ACE_DEBUG METHOD=<method> PARAMS=<json>` - Debug command
 - `ACE_GET_HELP` - Get help on available commands
+
+### Index Management
+- `ACE_GET_CURRENT_INDEX` - Get current tool index value
+- `ACE_SET_CURRENT_INDEX INDEX=<-1 to 3>` - Set current tool index value (for error recovery)
 
 ### Slot Mapping
 - `ACE_GET_SLOTMAPPING` - Get current slot mapping

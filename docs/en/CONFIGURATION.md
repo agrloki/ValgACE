@@ -37,13 +37,22 @@ park_hit_count: 5
   - Requires setting slot order via `ACE_SET_INFINITY_SPOOL_ORDER ORDER="..."`
 - `filament_sensor` - External filament sensor name for integration with ACE module (default: not set)
 
+### Status Fields
+The ACE module returns additional status fields through the `get_status` method:
+- `feed_assist_slot` - Index of slot with active feed assist (-1 if disabled)
+- `filament_sensor` - Status of external filament sensor if configured
+- `slot_mapping` - Index to slot mapping information
+
 ### Aggressive Parking
 - `aggressive_parking` - Enable aggressive parking mode (default: False)
   - Uses filament sensor for parking detection
+  - Two algorithms available: sensor-based (when filament sensor is configured) and distance-based (when no sensor is available)
 - `max_parking_distance` - Maximum parking distance in mm (default: 100)
 - `parking_speed` - Filament feed speed during parking in mm/s (default: 10)
 - `extended_park_time` - Additional time for sensor-based parking in seconds (default: 10)
 - `max_parking_timeout` - Maximum parking timeout in seconds (default: 60)
+- `max_parking_distance` - Maximum parking distance in mm for aggressive parking (default: 100)
+- `parking_speed` - Filament feed speed during parking in mm/s for aggressive parking (default: 10)
 
 ### Error Handling
 - `set_pause_macro_name` - Name of macro to call when connection is lost during printing (default: PAUSE)

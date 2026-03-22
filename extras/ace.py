@@ -378,6 +378,8 @@ class ValgAce:
             ('ACE_GET_SLOTMAPPING', self.cmd_ACE_GET_SLOTMAPPING, "Get current slot mapping"),
             ('ACE_SET_SLOTMAPPING', self.cmd_ACE_SET_SLOTMAPPING, "Set slot mapping"),
             ('ACE_RESET_SLOTMAPPING', self.cmd_ACE_RESET_SLOTMAPPING, "Reset slot mapping to defaults"),
+            ('ACE_GET_CURRENT_INDEX', self.cmd_ACE_GET_CURRENT_INDEX, "Get current tool index"),
+            ('ACE_SET_CURRENT_INDEX', self.cmd_ACE_SET_CURRENT_INDEX, "Set current tool index (for error recovery)"),
         ]
         for name, func, desc in commands:
             self.gcode.register_command(name, func, desc=desc)
@@ -1368,6 +1370,94 @@ class ValgAce:
             },callback)
         self.dwell(0.5, lambda: None)
  
+    def _distance_based_parking(self, index: int):
+        """
+        Distance-based parking algorithm for use when no filament sensor is configured.
+        
+        Algorithm:
+        1. Feed filament for (max_parking_distance - 20) mm
+        2. Wait for (max_parking_distance / parking_speed) seconds
+        3. Poll slot status until it becomes 'ready'
+        4. Start traditional parking (feed_assist)
+        """
+        self.logger.info(f"Starting distance-based parking for slot {index}")
+
+        # Set parking flags
+        self._park_in_progress = True
+        self._park_error = False
+        self._park_index = index
+        self._park_start_time = self.reactor.monotonic()
+        # Устанавливаем флаги сенсорной парковки (используем те же флаги для совместимости)
+        self._sensor_parking_active = True
+        self._sensor_parking_completed = False
+
+        # Calculate feed distance: max_parking_distance - 20 mm
+        feed_distance = max(self.max_parking_distance - 20, 10)  # Minimum 10mm
+        # Calculate wait time: max_parking_distance / parking_speed seconds
+        wait_time = self.max_parking_distance / self.parking_speed
+        
+        self.logger.info(f"Distance-based parking: feeding {feed_distance}mm, wait time {wait_time:.1f}s")
+
+        # Start feeding filament
+        def start_feed_callback(response):
+            if response.get('code', 0) != 0:
+                self.logger.error(f"Error starting feed for distance-based parking: {response.get('msg', 'Unknown error')}")
+                self._park_in_progress = False
+                self._park_error = True
+                self._sensor_parking_active = False
+                return
+
+            self.logger.info(f"Started feeding filament for slot {index}: {feed_distance}mm at speed {self.parking_speed}")
+            
+            # Schedule the wait and status check
+            self.dwell(wait_time, lambda: self._check_slot_status_for_parking(index))
+
+        # Send the feed command
+        self.send_request({
+            "method": "feed_filament",
+            "params": {"index": index, "length": feed_distance, "speed": self.parking_speed}
+        }, start_feed_callback)
+        
+        return True
+
+    def _check_slot_status_for_parking(self, index: int):
+        """
+        Check slot status after distance-based feeding and start traditional parking when ready.
+        """
+        if not self._park_in_progress:
+            self.logger.info(f"Parking already cancelled for slot {index}")
+            return
+
+        # Check slot status
+        slots = self._info.get('slots', [])
+        slot_status = 'unknown'
+        if index >= 0 and index < len(slots):
+            slot_status = slots[index].get('status', 'unknown')
+            
+            if slot_status == 'ready':
+                self.logger.info(f"Slot {index} is ready, switching to traditional parking")
+                self._sensor_parking_active = False
+                self._sensor_parking_completed = True
+                self._switch_to_traditional_parking(index)
+                return
+        
+        # Slot not ready yet, check again after a short delay
+        elapsed = self.reactor.monotonic() - self._park_start_time
+        max_wait_time = self.max_parking_timeout
+        
+        if elapsed > max_wait_time:
+            self.logger.error(f"Distance-based parking timeout for slot {index} after {elapsed:.1f}s")
+            self._park_in_progress = False
+            self._park_error = True
+            self._sensor_parking_active = False
+            self._sensor_parking_completed = False
+            self._pause_print_if_needed()
+            return
+        
+        # Continue polling
+        self.logger.debug(f"Slot {index} not ready yet (status: {slot_status}), waiting...")
+        self.dwell(0.5, lambda: self._check_slot_status_for_parking(index))
+
     def _sensor_based_parking(self, index: int):
         """
         Alternative parking algorithm using filament sensor detection.
@@ -1599,8 +1689,13 @@ class ValgAce:
 
         # Check if aggressive parking should be used
         if self.aggressive_parking:
-            self.logger.info(f"Using aggressive parking method for slot {index}")
-            self._sensor_based_parking(index)
+            # Check if filament sensor is configured and available
+            if self.filament_sensor:
+                self.logger.info(f"Using sensor-based aggressive parking for slot {index}")
+                self._sensor_based_parking(index)
+            else:
+                self.logger.info(f"Using distance-based aggressive parking for slot {index} (no filament sensor)")
+                self._distance_based_parking(index)
         else:
             self.logger.info(f"Starting traditional parking for slot {index}")
 
@@ -2123,6 +2218,10 @@ Slot Mapping:
   ACE_SET_SLOTMAPPING       - Set slot mapping (INDEX=0-3 SLOT=0-3)
   ACE_RESET_SLOTMAPPING     - Reset slot mapping to defaults (0→0, 1→1, 2→2, 3→3)
 
+Index Management:
+  ACE_GET_CURRENT_INDEX     - Get current tool index value
+  ACE_SET_CURRENT_INDEX     - Set current tool index value (ACE_SET_CURRENT_INDEX INDEX=<-1 to 3> - for error recovery)
+
 Debug:
   ACE_DEBUG                 - Debug command for direct device interaction
 
@@ -2191,6 +2290,33 @@ Debug:
         gcmd.respond_info(f"Slot mapping reset to defaults")
         gcmd.respond_info(f"  Old mapping: {old_mapping}")
         gcmd.respond_info(f"  New mapping: {self.index_to_slot}")
+
+    def cmd_ACE_GET_CURRENT_INDEX(self, gcmd):
+        """
+        Get the current tool index value.
+        This command outputs the current value of the ace_current_index variable.
+        """
+        current_index = self.variables.get('ace_current_index', -1)
+        gcmd.respond_info(f"Current tool index: {current_index}")
+        
+    def cmd_ACE_SET_CURRENT_INDEX(self, gcmd):
+        """
+        Set the current tool index value.
+        This command allows users to set an arbitrary index in the range -1 to 3.
+        Useful when the printer encounters an error and the correct index was not recorded during filament change.
+        
+        Parameters:
+          INDEX: The index to set (-1 to 3)
+        """
+        new_index = gcmd.get_int('INDEX', minval=-1, maxval=3)
+        
+        old_index = self.variables.get('ace_current_index', -1)
+        
+        # Update the variable
+        self.variables['ace_current_index'] = new_index
+        self._save_variable('ace_current_index', new_index)
+        
+        gcmd.respond_info(f"Tool index changed from {old_index} to {new_index}")
 
 def load_config(config):
     return ValgAce(config)
