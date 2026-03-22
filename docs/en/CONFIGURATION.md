@@ -35,6 +35,8 @@ park_hit_count: 5
 - `disable_assist_after_toolchange` - Disable feed assist after tool change (default: True)
 - `infinity_spool_mode` - Enable infinity spool mode (default: False)
   - Requires setting slot order via `ACE_SET_INFINITY_SPOOL_ORDER ORDER="..."`
+- `infinity_spool_debounce` - Debounce time in seconds for confirming 'empty' status (default: 2.0)
+- `infinity_spool_pause_on_no_sensor` - Pause printing when no filament sensor during infinity spool (default: True)
 - `filament_sensor` - External filament sensor name for integration with ACE module (default: not set)
 
 ### Status Fields

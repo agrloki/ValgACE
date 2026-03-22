@@ -77,6 +77,7 @@ class ValgAce:
         self.max_dryer_temperature = config.getint('max_dryer_temperature', 55)
         self.disable_assist_after_toolchange = config.getboolean('disable_assist_after_toolchange', True)
         self.infinity_spool_mode = config.getboolean ('infinity_spool_mode', False)
+        self.ins_spool_work = False  # Флаг выполнения операции ACE_INFINITY_SPOOL
         
         # Новые параметры для агрессивной парковки
         self.aggressive_parking = config.getboolean('aggressive_parking', False)
@@ -154,6 +155,16 @@ class ValgAce:
         self._connection_lost = False
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 10
+
+        # Infinity Spool Auto-trigger state
+        self.infsp_empty_detected = False        # Флаг обнаружения empty статуса
+        self.infsp_debounce_timer = None         # Reactor timer для debounce
+        self.infsp_sensor_monitor_timer = None   # Reactor timer для мониторинга датчика
+        self.infsp_last_active_status = None     # Последний известный статус активного слота
+
+        # Infinity Spool Auto-trigger configuration parameters
+        self.infinity_spool_debounce = config.getfloat('infinity_spool_debounce', 2.0)
+        self.infinity_spool_pause_on_no_sensor = config.getboolean('infinity_spool_pause_on_no_sensor', True)
 
     def _get_default_info(self) -> Dict[str, Any]:
         return {
@@ -342,6 +353,24 @@ class ValgAce:
             return None, "ACE device not connected"
         
         return real_slot, None
+
+    def _is_slot_ready(self, index: int) -> bool:
+        """
+        Проверить готовность слота по индексу.
+        Check if slot is ready by index.
+        
+        :param index: Индекс слота (0-3)
+        :return: True если слот готов, иначе False
+        """
+        try:
+            slots = self._info.get('slots', [])
+            if index < 0 or index >= len(slots):
+                return False
+            slot_info = slots[index]
+            return slot_info.get('status', 'unknown') == 'ready'
+        except Exception as e:
+            self.logger.error(f"Error checking slot {index} readiness: {str(e)}")
+            return False
 
     def _register_handlers(self):
         """
@@ -751,6 +780,14 @@ class ValgAce:
             if 'dryer_status' in result and isinstance(result['dryer_status'], dict):
                 result['dryer'] = result['dryer_status']
             self._info.update(result)
+            
+            # Infinity Spool Auto-trigger: проверка empty статуса при печати
+            # ВАЖНО: Не запускать мониторинг если уже идёт смена слота (ins_spool_work=True)
+            if self.infinity_spool_mode and self._is_printer_printing() and not self.ins_spool_work:
+                if self._check_slot_empty_status():
+                    self.logger.info(f"_handle_response: Starting empty slot monitoring, ins_spool_work={self.ins_spool_work}")
+                    self._start_empty_slot_monitoring()
+            
             if self._park_in_progress:
                 current_status = result.get('status', 'unknown')
                 current_assist_count = result.get('feed_assist_count', 0)
@@ -830,9 +867,15 @@ class ValgAce:
         # Если это была смена инструмента, выполняем макрос пост-обработки
         if self._park_is_toolchange:
             self.logger.info(f"Executing post-toolchange macro: FROM={self._park_previous_tool} TO={self._park_index}")
-            self.gcode.run_script_from_command(
-                f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}'
-            )
+            # Вызываем соответствующий POST-макрос в зависимости от режима
+            if self.ins_spool_work:
+                self.gcode.run_script_from_command(
+                    f'_ACE_POST_INFINITYSPOOL FROM={self._park_previous_tool} TO={self._park_index}'
+                )
+            else:
+                self.gcode.run_script_from_command(
+                    f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}'
+                )
         
         self._park_in_progress = False
         self._park_error = False  # Reset error flag
@@ -1733,7 +1776,11 @@ class ValgAce:
             self.gcode.run_script_from_command(f"_ACE_ON_EMPTY_ERROR INDEX={tool}")
             return
 
-        self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
+        # Вызываем соответствующий PRE-макрос в зависимости от режима
+        if self.ins_spool_work:
+            self.gcode.run_script_from_command(f"_ACE_PRE_INFINITYSPOOL FROM={was} TO={tool}")
+        else:
+            self.gcode.run_script_from_command(f"_ACE_PRE_TOOLCHANGE FROM={was} TO={tool}")
         self._park_is_toolchange = True
         self._park_previous_tool = was
         if self.toolhead:
@@ -1746,35 +1793,40 @@ class ValgAce:
                 gcmd.respond_raw(f"ACE Error: {response.get('msg', 'Unknown error')}")
 
         if was != -1:
-            # Retract current tool first (используем реальный слот)
-            # Retract current tool first (use real slot)
-            self.logger.info(f"Retracting from real slot {real_was} (Klipper index {was})")
-            self.send_request({
-                "method": "unwind_filament",
-                "params": {
-                    "index": real_was,
-                    "length": self.toolchange_retract_length,
-                    "speed": self.retract_speed
-                }
-            }, callback)
-            
-            # Wait for retract to physically complete
-            retract_time = (self.toolchange_retract_length / self.retract_speed) + 1.0
-            self.logger.info(f"Waiting {retract_time:.1f}s for retract to complete")
-            if self.toolhead:
-                self.toolhead.dwell(retract_time)
-            
-            # Wait for slot to be ready (status changes to 'ready' after retraction)
-            self.logger.info(f"Waiting for real slot {real_was} to be ready")
-            timeout = self.reactor.monotonic() + 10.0  # 10 second timeout
-            while self._info['slots'][real_was]['status'] != 'ready':
-                if self.reactor.monotonic() > timeout:
-                    gcmd.respond_raw(f"ACE Error: Timeout waiting for slot {real_was} to be ready")
-                    return
+            # При работе infinity spool ретракт не выполняется - филамент уже закончился
+            # When infinity spool is working, skip retract - filament is already empty
+            if not self.ins_spool_work:
+                # Retract current tool first (используем реальный слот)
+                # Retract current tool first (use real slot)
+                self.logger.info(f"Retracting from real slot {real_was} (Klipper index {was})")
+                self.send_request({
+                    "method": "unwind_filament",
+                    "params": {
+                        "index": real_was,
+                        "length": self.toolchange_retract_length,
+                        "speed": self.retract_speed
+                    }
+                }, callback)
+                
+                # Wait for retract to physically complete
+                retract_time = (self.toolchange_retract_length / self.retract_speed) + 1.0
+                self.logger.info(f"Waiting {retract_time:.1f}s for retract to complete")
                 if self.toolhead:
-                    self.toolhead.dwell(1.0)
-            
-            self.logger.info(f"Slot {real_was} is ready, parking new tool {tool} (real slot {real_tool})")
+                    self.toolhead.dwell(retract_time)
+                
+                # Wait for slot to be ready (status changes to 'ready' after retraction)
+                self.logger.info(f"Waiting for real slot {real_was} to be ready")
+                timeout = self.reactor.monotonic() + 10.0  # 10 second timeout
+                while self._info['slots'][real_was]['status'] != 'ready':
+                    if self.reactor.monotonic() > timeout:
+                        gcmd.respond_raw(f"ACE Error: Timeout waiting for slot {real_was} to be ready")
+                        return
+                    if self.toolhead:
+                        self.toolhead.dwell(1.0)
+                
+                self.logger.info(f"Slot {real_was} is ready, parking new tool {tool} (real slot {real_tool})")
+            else:
+                self.logger.info(f"Skipping retract for infinity spool - slot {real_was} is empty, parking new tool {tool} (real slot {real_tool})")
             
             if tool != -1:
                 # Park new tool to toolhead (используем реальный слот)
@@ -1804,13 +1856,19 @@ class ValgAce:
                     self.toolhead.wait_moves()
 
                 # Execute post-toolchange macro
-                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                if self.ins_spool_work:
+                    self.gcode.run_script_from_command(f'_ACE_POST_INFINITYSPOOL FROM={was} TO={tool}')
+                else:
+                    self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
                 if self.toolhead:
                     self.toolhead.wait_moves()
                 gcmd.respond_info(f"Tool changed from {was} to {tool} (real slot {real_tool})")
             else:
                 # Unloading only, no new tool
-                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+                if self.ins_spool_work:
+                    self.gcode.run_script_from_command(f'_ACE_POST_INFINITYSPOOL FROM={was} TO={tool}')
+                else:
+                    self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
                 if self.toolhead:
                     self.toolhead.wait_moves()
                 gcmd.respond_info(f"Tool changed from {was} to {tool}")
@@ -1841,9 +1899,12 @@ class ValgAce:
             self.logger.info(f"Parking completed, executing post-toolchange")
             if self.toolhead:
                 self.toolhead.wait_moves()
-            
+
             # Execute post-toolchange macro
-            self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
+            if self.ins_spool_work:
+                self.gcode.run_script_from_command(f'_ACE_POST_INFINITYSPOOL FROM={was} TO={tool}')
+            else:
+                self.gcode.run_script_from_command(f'_ACE_POST_TOOLCHANGE FROM={was} TO={tool}')
             if self.toolhead:
                 self.toolhead.wait_moves()
             gcmd.respond_info(f"Tool changed from {was} to {tool} (real slot {real_tool})")
@@ -1979,199 +2040,134 @@ class ValgAce:
             gcmd.respond_raw(f"Error: {str(e)}")
  
     def cmd_ACE_INFINITY_SPOOL(self, gcmd):
-        was = self.variables.get('ace_current_index', -1)
-        infsp_status = self.infinity_spool_mode
-        
-        if not infsp_status:
-            gcmd.respond_info(f"ACE_INFINITY_SPOOL disabled")
-            gcmd.respond_info(f"ACE_INFINITY_SPOOL status {infsp_status}")
-            return
-        if was == -1:
-            gcmd.respond_info(f"Tool is not set")
-            return
-        
-        # Get order from variables
-        order_str = self.variables.get('ace_infsp_order', '')
-        if not order_str:
-            gcmd.respond_raw("Error: Infinity spool order not set. Use ACE_SET_INFINITY_SPOOL_ORDER ORDER=\"...\" first")
-            gcmd.respond_info("Example: ACE_SET_INFINITY_SPOOL_ORDER ORDER=\"0,1,2,3\"")
+        """
+        Автоматическая смена слота при окончании филамента.
+        Вызывает ACE_CHANGE_TOOL с установленным флагом ins_spool_work,
+        который определяет какие макросы будут вызваны (PRE/POST_INFINITYSPOOL вместо PRE/POST_TOOLCHANGE).
+        """
+        # 1. Проверка что операция не выполняется
+        if self.ins_spool_work:
+            gcmd.respond_info("ACE_INFINITY_SPOOL: Operation already in progress")
+            self.logger.info("ACE_INFINITY_SPOOL: BLOCKED - ins_spool_work is already True")
             return
         
-        # Parse order
+        # 2. Отменить все активные таймеры мониторинга перед началом смены
+        if self.infsp_debounce_timer is not None:
+            self.logger.info("ACE_INFINITY_SPOOL: Cancelling debounce timer")
+            try:
+                self.reactor.unregister_timer(self.infsp_debounce_timer)
+            except:
+                pass
+            self.infsp_debounce_timer = None
+        
+        if self.infsp_sensor_monitor_timer is not None:
+            self.logger.info("ACE_INFINITY_SPOOL: Cancelling sensor monitor timer")
+            try:
+                self.reactor.unregister_timer(self.infsp_sensor_monitor_timer)
+            except:
+                pass
+            self.infsp_sensor_monitor_timer = None
+        
+        # 3. Сбросить флаг empty_detected
+        self.infsp_empty_detected = False
+        
+        # 4. Установить флаг работы
+        self.ins_spool_work = True
+        self.logger.info("ACE_INFINITY_SPOOL: STARTED - ins_spool_work set to True")
+        
         try:
-            order_list = []
-            for item in order_str.split(','):
-                item = item.strip().lower()
-                if item == 'none':
-                    order_list.append('none')
-                else:
-                    order_list.append(int(item))
-        except Exception as e:
-            self.logger.error(f"Error parsing infinity spool order: {str(e)}")
-            gcmd.respond_raw(f"Error: Invalid order format: {order_str}")
-            return
-        
-        # Get current position in order (if set, otherwise find current slot)
-        saved_position = self.variables.get('ace_infsp_position', -1)
-        
-        # Find current slot position in order
-        current_order_index = -1
-        
-        # If we have a saved position, use it (more reliable)
-        if saved_position >= 0 and saved_position < len(order_list):
-            # Verify that saved position matches current slot
-            if order_list[saved_position] != 'none' and order_list[saved_position] == was:
-                current_order_index = saved_position
+            # 3. Проверка infinity_spool_mode
+            if not self.infinity_spool_mode:
+                gcmd.respond_info("ACE_INFINITY_SPOOL: Mode is disabled")
+                return
+            
+            # 4. Получить текущий индекс
+            current_index = self.variables.get('ace_current_index', -1)
+            
+            if current_index == -1:
+                gcmd.respond_info("ACE_INFINITY_SPOOL: Tool is not set")
+                return
+            
+            # 5. Получить порядок слотов
+            order_str = self.variables.get('ace_infsp_order', '')
+            
+            # 6. Выбрать следующий слот
+            next_slot = None
+            new_position = None
+            
+            if order_str:
+                # Парсим порядок (формат "0,2,1,3" или подобный)
+                # Проверяем тип order_str - может быть строкой или кортежем
+                self.logger.debug(f"ace_infsp_order type: {type(order_str).__name__}, value: {order_str}")
+                try:
+                    order_list = []
+                    # Если order_str - кортеж или список, конвертируем в список напрямую
+                    if isinstance(order_str, (tuple, list)):
+                        self.logger.info(f"ace_infsp_order is {type(order_str).__name__}, converting to list")
+                        for item in order_str:
+                            item_str = str(item).strip().lower()
+                            if item_str == 'none':
+                                order_list.append('none')
+                            else:
+                                order_list.append(int(item_str))
+                    else:
+                        # Строковый формат - парсим через split
+                        for item in str(order_str).split(','):
+                            item = item.strip().lower()
+                            if item == 'none':
+                                order_list.append('none')
+                            else:
+                                order_list.append(int(item))
+                    
+                    # Получить текущую позицию в порядке
+                    current_pos = self.variables.get('ace_infsp_position', -1)
+                    
+                    # Найти текущий слот в порядке если позиция не сохранена
+                    if current_pos < 0 or current_pos >= len(order_list):
+                        for i, slot in enumerate(order_list):
+                            if slot != 'none' and slot == current_index:
+                                current_pos = i
+                                break
+                    
+                    # Найти следующий в порядке
+                    for i in range(len(order_list)):
+                        idx = (current_pos + 1 + i) % len(order_list)
+                        slot = order_list[idx]
+                        if slot != 'none' and self._is_slot_ready(slot):
+                            next_slot = slot
+                            new_position = idx
+                            break
+                            
+                except Exception as e:
+                    self.logger.error(f"Error parsing infinity spool order: {str(e)}")
             else:
-                # Saved position doesn't match, find current slot
-                self.logger.warning(f"Saved position {saved_position} doesn't match current slot {was}, searching...")
-                for i, slot in enumerate(order_list):
-                    if slot != 'none' and slot == was:
-                        current_order_index = i
+                # Первый доступный в порядке 0,1,2,3
+                for idx in range(4):
+                    if self._is_slot_ready(idx):
+                        next_slot = idx
+                        new_position = idx
                         break
-        else:
-            # No saved position, find current slot in order
-            for i, slot in enumerate(order_list):
-                if slot != 'none' and slot == was:
-                    current_order_index = i
-                    break
-        
-        if current_order_index == -1:
-            # Current slot not found in order, start from beginning
-            self.logger.warning(f"Current slot {was} not found in order, starting from beginning")
-            current_order_index = -1
-        
-        # Find next valid slot (skip 'none'), cycling through order
-        tool = None
-        new_position = None
-        
-        # Search through entire order (max one full cycle)
-        for i in range(len(order_list)):
-            next_index = (current_order_index + 1 + i) % len(order_list)
-            next_slot = order_list[next_index]
             
-            if next_slot == 'none':
-                continue  # Skip empty slots
+            if next_slot is None:
+                gcmd.respond_info("ACE_INFINITY_SPOOL: No ready slot found")
+                return
             
-            # Check if slot is ready
-            if self._info['slots'][next_slot]['status'] == 'ready':
-                tool = next_slot
-                new_position = next_index
-                break
-        
-        if tool is None:
-            gcmd.respond_raw("Error: No more ready slots available in order")
-            self.logger.error("INFINITY_SPOOL: No ready slots found in order")
-            return
-        
-        # CRITICAL: Check if new slot is ready before proceeding
-        if self._info['slots'][tool]['status'] != 'ready':
-            gcmd.respond_raw(f"ACE Error: Slot {tool} is not ready (status: {self._info['slots'][tool]['status']})")
-            self.logger.error(f"INFINITY_SPOOL aborted: slot {tool} not ready")
-            return
-        
-        self.logger.info(f"INFINITY_SPOOL: changing from {was} to {tool} (no retract - filament exhausted)")
-        
-        # Pre-processing
-        self.gcode.run_script_from_command(f"_ACE_PRE_INFINITYSPOOL")
-        if self.toolhead:
-            self.toolhead.wait_moves()
-        
-        # Track parking success
-        parking_success = {'completed': False}
-        
-        def on_park_complete():
-            if parking_success['completed']:
-                return  # Already processed
-            parking_success['completed'] = True
-            # Очищаем ссылку на таймер мониторинга
-            self._park_monitor_timer = None
-
-            self.logger.info(f"INFINITY_SPOOL: parking complete for slot {tool}, executing post-processing")
-            self.gcode.run_script_from_command(f'_ACE_POST_INFINITYSPOOL')
-            if self.toolhead:
-                self.toolhead.wait_moves()
-
-            # Save variables only on success
-            self._save_variable('ace_current_index', tool)
-            self._save_variable('ace_infsp_position', new_position)
-            gcmd.respond_info(f"Tool changed from {was} to {tool}")
-
-        def on_park_error():
-            if parking_success['completed']:
-                return  # Already processed
-            parking_success['completed'] = True
-            # Очищаем ссылку на таймер мониторинга
-            self._park_monitor_timer = None
-
-            self.logger.error(f"INFINITY_SPOOL: parking failed for slot {tool}")
-            gcmd.respond_raw(f"ACE Error: Failed to park slot {tool}")
-            # Don't save variables on error
-        
-        # Start parking with monitoring
-        self.logger.info(f"INFINITY_SPOOL: starting parking for slot {tool} with monitoring")
-        
-        # Set up monitoring for parking completion
-        # Note: _park_to_toolhead will set these flags, but we need to set them first
-        # to avoid race condition with monitoring timer
-        self._park_in_progress = True
-        self._park_error = False
-        self._park_index = tool
-        self._assist_hit_count = 0
-        self._park_start_time = self.reactor.monotonic()
-        self._park_count_increased = False
-        
-        # Start parking using direct function call
-        self._park_to_toolhead(tool)
-        if self.toolhead:
-            self.toolhead.wait_moves()
+            # 7. Сохранить позицию в порядке
+            if new_position is not None:
+                self._save_variable('ace_infsp_position', new_position)
             
-        # Monitor parking with timeout
-        max_wait_time = 30.0
-        start_time = self.reactor.monotonic()
-
-        def cleanup_park_timer():
-            """Очистка ссылки на таймер мониторинга парковки"""
-            self._park_monitor_timer = None
-
-        def check_parking_status(eventtime):
-            elapsed = eventtime - start_time
-
-            # Check for connection lost
-            if self._connection_lost:
-                self.logger.error(f"INFINITY_SPOOL: Connection lost during parking for slot {tool}")
-                self._park_in_progress = False
-                self._park_error = True
-                on_park_error()
-                cleanup_park_timer()
-                return self.reactor.NEVER
-
-            # Check for error
-            if self._park_error:
-                on_park_error()
-                cleanup_park_timer()
-                return self.reactor.NEVER
-
-            # Check for completion
-            if not self._park_in_progress:
-                on_park_complete()
-                cleanup_park_timer()
-                return self.reactor.NEVER
-
-            # Check for timeout
-            if elapsed > max_wait_time:
-                self.logger.error(f"INFINITY_SPOOL: parking timeout after {elapsed:.1f}s")
-                self._park_in_progress = False
-                self._park_error = True
-                on_park_error()
-                cleanup_park_timer()
-                return self.reactor.NEVER
-
-            # Continue monitoring
-            return eventtime + 0.5
-
-        # Register monitoring timer and save reference
-        self._park_monitor_timer = self.reactor.register_timer(check_parking_status, self.reactor.monotonic() + 0.5)
+            self.logger.info(f"ACE_INFINITY_SPOOL: changing from {current_index} to {next_slot}")
+            
+            # 8. Вызвать ACE_CHANGE_TOOL с выбранным слотом
+            self.gcode.run_script_from_command(f"ACE_CHANGE_TOOL TOOL={next_slot}")
+            
+        finally:
+            # 9. Сбросить флаг и состояние перед завершением
+            self.logger.info(f"ACE_INFINITY_SPOOL: FINALLY - resetting ins_spool_work from {self.ins_spool_work} to False")
+            self.ins_spool_work = False
+            # Сбросить последний известный статус, чтобы избежать повторного триггера
+            # при следующем вызове _check_slot_empty_status
+            self.infsp_last_active_status = None
 
     def cmd_ACE_GET_HELP(self, gcmd):
         """Show all available ACE commands with descriptions"""
@@ -2220,7 +2216,7 @@ Slot Mapping:
 
 Index Management:
   ACE_GET_CURRENT_INDEX     - Get current tool index value
-  ACE_SET_CURRENT_INDEX     - Set current tool index value (ACE_SET_CURRENT_INDEX INDEX=<-1 to 3> - for error recovery)
+  ACE_SET_CURRENT_INDEX     - Set current tool index value (for error recovery)
 
 Debug:
   ACE_DEBUG                 - Debug command for direct device interaction
@@ -2317,6 +2313,181 @@ Debug:
         self._save_variable('ace_current_index', new_index)
         
         gcmd.respond_info(f"Tool index changed from {old_index} to {new_index}")
+
+    # ============================================================
+    # Infinity Spool Auto-trigger Methods
+    # ============================================================
+
+    def _is_printer_printing(self):
+        """Проверяет, находится ли принтер в состоянии печати."""
+        try:
+            idle_timeout = self.printer.lookup_object('idle_timeout')
+            state = idle_timeout.get_status(eventtime=self.reactor.monotonic()).get('state', 'idle')
+            return state == 'Printing'
+        except Exception:
+            return False
+
+    def _get_active_slot_index(self):
+        """Возвращает индекс текущего активного слота или -1."""
+        return self.variables.get('ace_current_index', -1)
+
+    def _get_active_slot_status(self):
+        """Возвращает статус текущего активного слота или None."""
+        idx = self._get_active_slot_index()
+        if idx is None or idx < 0:
+            return None
+        # Получаем реальный слот через маппинг
+        real_slot = self._get_real_slot(idx)
+        slots = self._info.get('slots', [])
+        if real_slot < 0 or real_slot >= len(slots):
+            return None
+        return slots[real_slot].get('status', None)
+
+    def _check_slot_empty_status(self):
+        """Проверяет, изменился ли статус активного слота на 'empty'."""
+        if not self.infinity_spool_mode:
+            return False
+        
+        # ВАЖНО: Не запускать мониторинг если уже идёт смена слота
+        if self.ins_spool_work:
+            self.logger.debug(f"_check_slot_empty_status: SKIP - ins_spool_work is True")
+            return False
+
+        current_status = self._get_active_slot_status()
+        self.logger.debug(f"_check_slot_empty_status: current_status={current_status}, last_status={self.infsp_last_active_status}, ins_spool_work={self.ins_spool_work}")
+
+        # Обнаружен переход в empty
+        if current_status == 'empty' and self.infsp_last_active_status != 'empty':
+            self.infsp_last_active_status = current_status
+            self.logger.info(f"_check_slot_empty_status: EMPTY detected! ins_spool_work={self.ins_spool_work}")
+            return True
+
+        self.infsp_last_active_status = current_status
+        return False
+
+    def _start_empty_slot_monitoring(self):
+        """Запускает debounce-мониторинг при обнаружении empty статуса."""
+        self.logger.info(f"_start_empty_slot_monitoring: CALLED, ins_spool_work={self.ins_spool_work}, debounce_timer={self.infsp_debounce_timer is not None}")
+        
+        # ВАЖНО: Не запускать мониторинг если уже идёт смена слота
+        if self.ins_spool_work:
+            self.logger.info("_start_empty_slot_monitoring: SKIP - ins_spool_work is True")
+            return
+        
+        if self.infsp_debounce_timer is not None:
+            self.logger.info("_start_empty_slot_monitoring: Cancelling existing debounce timer")
+            try:
+                self.reactor.unregister_timer(self.infsp_debounce_timer)
+            except:
+                pass
+            self.infsp_debounce_timer = None
+
+        self.infsp_empty_detected = True
+        self.infsp_debounce_timer = self.reactor.register_timer(
+            self._monitor_empty_slot_debounce,
+            self.reactor.monotonic() + self.infinity_spool_debounce
+        )
+
+    def _monitor_empty_slot_debounce(self, eventtime):
+        """Подтверждает empty статус после debounce периода."""
+        self.infsp_debounce_timer = None
+
+        # ВАЖНО: Не продолжать если уже идёт смена слота
+        if self.ins_spool_work:
+            self.logger.info("_monitor_empty_slot_debounce: SKIP - ins_spool_work is True")
+            self.infsp_empty_detected = False
+            return self.reactor.NEVER
+
+        # Проверяем условия
+        if not self._is_printer_printing():
+            self.infsp_empty_detected = False
+            return self.reactor.NEVER
+
+        if self._get_active_slot_status() != 'empty':
+            self.infsp_empty_detected = False
+            return self.reactor.NEVER
+
+        # Empty статус подтверждён — переходим к обработке
+        self._handle_infinity_spool_scenario()
+        return self.reactor.NEVER
+
+    def _handle_infinity_spool_scenario(self):
+        """Обрабатывает сценарий empty слота: с датчиком или без."""
+        # ВАЖНО: Не продолжать если уже идёт смена слота
+        if self.ins_spool_work:
+            self.logger.info("_handle_infinity_spool_scenario: SKIP - ins_spool_work is True")
+            self.infsp_empty_detected = False
+            return
+        
+        if not self._is_printer_printing():
+            self.infsp_empty_detected = False
+            return
+
+        # Если есть датчик филамента — ждём его срабатывания
+        if self.filament_sensor:
+            self._monitor_filament_sensor_for_empty()
+        else:
+            # Без датчика — пауза или немедленная смена
+            if self.infinity_spool_pause_on_no_sensor:
+                self._trigger_pause_macro()
+            else:
+                self._trigger_infinity_spool_auto()
+
+    def _monitor_filament_sensor_for_empty(self):
+        """Мониторит датчик филамента без таймаута."""
+        if self.infsp_sensor_monitor_timer is not None:
+            self.infsp_sensor_monitor_timer.cancel()
+
+        self.infsp_sensor_monitor_timer = self.reactor.register_timer(
+            self._check_filament_sensor_trigger,
+            self.reactor.monotonic() + 1.0  # Проверка каждую секунду
+        )
+
+    def _check_filament_sensor_trigger(self, eventtime):
+        """Периодически проверяет датчик филамента без таймаута."""
+        # ВАЖНО: Не продолжать если уже идёт смена слота
+        if self.ins_spool_work:
+            self.logger.info("_check_filament_sensor_trigger: SKIP - ins_spool_work is True")
+            self.infsp_sensor_monitor_timer = None
+            self.infsp_empty_detected = False
+            return self.reactor.NEVER
+        
+        # Проверяем датчик
+        try:
+            fs = self.printer.lookup_object(f'filament_switch_sensor {self.filament_sensor_name}')
+            sensor_active = fs.get_status(eventtime).get('filament_detected', True)
+
+            if not sensor_active:  # Филамент не обнаружен
+                self.infsp_sensor_monitor_timer = None
+                self._trigger_infinity_spool_auto()
+                return self.reactor.NEVER
+        except Exception as e:
+            self.logger.warning(f"Error checking filament sensor: {str(e)}")
+            pass
+
+        return eventtime + 1.0  # Следующая проверка через секунду
+
+    def _trigger_infinity_spool_auto(self):
+        """Программно вызывает ACE_INFINITY_SPOOL."""
+        self.logger.info(f"_trigger_infinity_spool_auto: CALLED, ins_spool_work={self.ins_spool_work}")
+        
+        # ВАЖНО: Не запускать если уже идёт смена слота
+        if self.ins_spool_work:
+            self.logger.info("_trigger_infinity_spool_auto: SKIP - ins_spool_work is True")
+            self.infsp_empty_detected = False
+            return
+        
+        self.infsp_empty_detected = False
+
+        # Создаём фиктивный GCode command
+        gcode = self.printer.lookup_object('gcode')
+        gcode.run_script('ACE_INFINITY_SPOOL')
+
+    def _trigger_pause_macro(self):
+        """Вызывает макрос паузы печати."""
+        self.infsp_empty_detected = False
+        gcode = self.printer.lookup_object('gcode')
+        gcode.run_script('PAUSE')
 
 def load_config(config):
     return ValgAce(config)

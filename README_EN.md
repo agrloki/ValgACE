@@ -25,16 +25,14 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 
 ### Project Status
 
-**Status:** Stable  
-**Confirmed on:** Sovol SV08, Kingroon KLP1, Kingroon KP3S Pro V2, custom Klipper 3D printers  
+**Status:** Stable
+
+**Confirmed on:** Sovol SV08, Kingroon KLP1, Kingroon KP3S Pro V2, custom Klipper 3D printers.
+
 **Based on:** [DuckACE](https://github.com/utkabobr/DuckACE)
 
-**Known Issues:** 
-- Infinity spool mode does not work properly. (It technically works, but requires a lot of effort and ritual dancing with a tambourine to use)
-
 **Future Plans:**
-- Combined parking mode. (combination of feed+feed assist) For printers with long distance from splitter to head and without filament sensor in the head.
-- Fix infinity spool mode :)
+- No future plans yet. All desired features have been implemented.
 
 ## Features
 
@@ -43,6 +41,7 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 - Filament feed and retract with adjustable speed
 - Automatic filament parking to nozzle
 - Infinity spool mode with configurable slot order
+- **Infinity Spool Auto-trigger** - automatic monitoring and slot change when filament runs out
 
 ✅ **Drying Control**
 - Programmable filament drying
@@ -75,10 +74,13 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 - Configurable parameters: max distance, speed, timeout
 - Suitable for printers with long filament path
 
+- Compatibility with existing configurations
+
 ✅ **REST API via Moonraker**
 - Get ACE status via HTTP API
 - Execute commands via REST endpoints
 - WebSocket subscription for status updates
+
 
 ## System Requirements
 
@@ -91,7 +93,6 @@ ValgACE is a full-featured driver for controlling the Anycubic Color Engine Pro 
 
 - ✅ Creality K1 / K1 Max
 - ⚠️ Other Klipper printers (requires testing)
-
 
 ## Quick Start
 
@@ -163,6 +164,65 @@ Full documentation is available in the `docs/` folder:
 - **[Protocol](docs/Protocol.md)** - technical protocol documentation
 - **[Moonraker API](docs/MOONRAKER_API.md)** - Moonraker API integration and REST endpoints (Russian)
 
+## Main Commands
+
+```gcode
+# Get device status
+ACE_STATUS
+
+# Tool change
+ACE_CHANGE_TOOL TOOL=0    # Load slot 0
+ACE_CHANGE_TOOL TOOL=-1   # Unload filament
+
+# Filament parking
+ACE_PARK_TO_TOOLHEAD INDEX=0
+
+# Feed control
+ACE_FEED INDEX=0 LENGTH=50 SPEED=25
+ACE_RETRACT INDEX=0 LENGTH=50 SPEED=25
+
+# Filament drying
+ACE_START_DRYING TEMP=50 DURATION=120
+ACE_STOP_DRYING
+
+# Infinity spool mode
+ACE_SET_INFINITY_SPOOL_ORDER ORDER="0,1,2,3"  # Set slot order
+ACE_INFINITY_SPOOL  # Auto change spool when empty
+
+# Slot mapping
+ACE_GET_SLOTMAPPING                 # Get current mapping
+ACE_SET_SLOTMAPPING INDEX=0 SLOT=1  # Assign T0 -> slot 1
+ACE_RESET_SLOTMAPPING               # Reset to defaults
+SET_ALL_SLOTMAPPING S0=0 S1=1 S2=2 S3=3  # Batch configuration
+
+# Connection management
+ACE_RECONNECT                       # Reconnect on errors
+
+# Help
+ACE_GET_HELP                        # Display all commands
+```
+
+Full command list available in [Commands Reference](docs/en/COMMANDS.md).
+
+## REST API
+
+After installation, REST API endpoints are available via Moonraker:
+
+```bash
+# Get ACE status
+curl http://localhost:7125/server/ace/status
+
+# Get slot information
+curl http://localhost:7125/server/ace/slots
+
+# Execute ACE command
+curl -X POST http://localhost:7125/server/ace/command \
+  -H "Content-Type: application/json" \
+  -d '{"command":"ACE_PARK_TO_TOOLHEAD","params":{"INDEX":0}}'
+```
+
+Detailed REST API documentation: [Moonraker API](docs/MOONRAKER_API.md)
+
 ## Web Interface
 ![Web](/.github/img/valgace-web.png)
 
@@ -195,65 +255,6 @@ Files:
 - `ace-dashboard.css` - styles
 - `ace-dashboard.js` - API logic
 - `ace-dashboard-config.js` - Moonraker address configuration
-
-## Main Commands
-
-```gcode
-# Get device status
-ACE_STATUS
-
-# Tool change
-ACE_CHANGE_TOOL TOOL=0    # Load slot 0
-ACE_CHANGE_TOOL TOOL=-1   # Unload filament
-
-# Filament parking
-ACE_PARK_TO_TOOLHEAD INDEX=0
-
-# Feed control
-ACE_FEED INDEX=0 LENGTH=50 SPEED=25
-ACE_RETRACT INDEX=0 LENGTH=50 SPEED=25
-
-# Filament drying
-ACE_START_DRYING TEMP=50 DURATION=120
-ACE_STOP_DRYING
-
-# Infinity spool mode
-ACE_SET_INFINITY_SPOOL_ORDER ORDER="0,1,2,3"  # Set slot order
-ACE_INFINITY_SPOOL  # Auto change spool when empty
-
-# Slot mapping
-ACE_GET_SLOTMAPPING                 # Get current mapping
-ACE_SET_SLOTMAPPING KLIPPER_INDEX=0 ACE_INDEX=1  # Assign T0 -> slot 1
-ACE_RESET_SLOTMAPPING               # Reset to defaults
-SET_ALL_SLOTMAPPING S0=0 S1=1 S2=2 S3=3  # Batch configuration
-
-# Connection management
-ACE_RECONNECT                       # Reconnect on errors
-
-# Help
-ACE_GET_HELP                        # Display all commands
-```
-
-Full command list available in [Commands Reference](docs/en/COMMANDS.md).
-
-## REST API
-
-After installation, REST API endpoints are available via Moonraker:
-
-```bash
-# Get ACE status
-curl http://localhost:7125/server/ace/status
-
-# Get slot information
-curl http://localhost:7125/server/ace/slots
-
-# Execute ACE command
-curl -X POST http://localhost:7125/server/ace/command \
-  -H "Content-Type: application/json" \
-  -d '{"command":"ACE_PARK_TO_TOOLHEAD","params":{"INDEX":0}}'
-```
-
-Detailed REST API documentation: [Moonraker API](docs/MOONRAKER_API.md)
 
 ## Support
 

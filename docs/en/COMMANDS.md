@@ -55,6 +55,18 @@ Complete list of all available G-code commands for controlling the Anycubic Colo
 - `ACE_INFINITY_SPOOL` - Auto change spool when empty (uses configured order)
 - `RESET_INFINITY_SPOOL` - Reset position in order
 
+### Infinity Spool Auto-trigger
+When `infinity_spool_mode` is enabled, automatic monitoring of the active slot status works during printing:
+
+**Algorithm:**
+1. **Empty status detection:** Active slot status monitored every 0.5 seconds
+2. **Debounce confirmation:** After `infinity_spool_debounce` seconds, status is rechecked
+3. **Slot change:**
+   - **With filament sensor:** Monitors sensor until triggered, then calls `ACE_INFINITY_SPOOL`
+   - **Without sensor:**
+     - If `infinity_spool_pause_on_no_sensor=True` - pause printing
+     - If `infinity_spool_pause_on_no_sensor=False` - immediate `ACE_INFINITY_SPOOL` call
+
 ### Aliases
 - `T0`, `T1`, `T2`, `T3` - Quick tool change (equivalent to `ACE_CHANGE_TOOL TOOL=0-3`)
 - `TR` - Unload filament (equivalent to `ACE_CHANGE_TOOL TOOL=-1`)
