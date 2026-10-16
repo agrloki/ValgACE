@@ -851,45 +851,35 @@ class ValgAce:
         if not self._park_in_progress:
             return
         self.logger.info(f"Parking completed for slot {self._park_index}")
-        
-        # Останавливаем feed assist для указанного слота
-        def stop_feed_assist_callback(response):
-            if response.get('code', 0) != 0:
-                self.logger.warning(f"Warning stopping feed assist after parking: {response.get('msg', 'Unknown error')}")
-            else:
-                self.logger.info(f"Feed assist stopped successfully after parking for slot {self._park_index}")
-        
-        self.send_request({
-            "method": "stop_feed_assist",
-            "params": {"index": self._park_index}
-        }, stop_feed_assist_callback)
-        
-        # Если это была смена инструмента, выполняем макрос пост-обработки
-        if self._park_is_toolchange:
-            self.logger.info(f"Executing post-toolchange macro: FROM={self._park_previous_tool} TO={self._park_index}")
-            # Вызываем соответствующий POST-макрос в зависимости от режима
-            if self.ins_spool_work:
-                self.gcode.run_script_from_command(
-                    f'_ACE_POST_INFINITYSPOOL FROM={self._park_previous_tool} TO={self._park_index}'
-                )
-            else:
-                self.gcode.run_script_from_command(
-                    f'_ACE_POST_TOOLCHANGE FROM={self._park_previous_tool} TO={self._park_index}'
-                )
-        
-        self._park_in_progress = False
-        self._park_error = False  # Reset error flag
-        self._park_is_toolchange = False
-        self._park_previous_tool = -1
-        self._park_index = -1
-        # Сбрасываем флаги сенсорной парковки
-        self._sensor_parking_active = False
-        self._sensor_parking_completed = False
-        # Очищаем ссылки на таймеры для предотвращения утечек
-        self._park_monitor_timer = None
-        self._sensor_monitor_timer = None
-        if self.disable_assist_after_toolchange:
-            self._feed_assist_index = -1
+        try:
+            # Останавливаем feed assist для указанного слота
+            def stop_feed_assist_callback(response):
+                if response.get('code', 0) != 0:
+                    self.logger.warning(f"Warning stopping feed assist after parking: {response.get('msg', 'Unknown error')}")
+                else:
+                    self.logger.info(f"Feed assist stopped successfully after parking for slot {self._park_index}")
+
+            self.send_request({
+                "method": "stop_feed_assist",
+                "params": {"index": self._park_index}
+            }, stop_feed_assist_callback)
+        finally:
+            # POST-макрос НЕ выполняется здесь — его выполняет cmd_ACE_CHANGE_TOOL
+            # после выхода из wait-цикла. Это предотвращает двойное выполнение
+            # и исключение при reentrant-вызове из reactor callback.
+            self._park_in_progress = False
+            self._park_error = False  # Reset error flag
+            self._park_is_toolchange = False
+            self._park_previous_tool = -1
+            self._park_index = -1
+            # Сбрасываем флаги сенсорной парковки
+            self._sensor_parking_active = False
+            self._sensor_parking_completed = False
+            # Очищаем ссылки на таймеры для предотвращения утечек
+            self._park_monitor_timer = None
+            self._sensor_monitor_timer = None
+            if self.disable_assist_after_toolchange:
+                self._feed_assist_index = -1
 
     def dwell(self, delay: float = 1.0, callback: Optional[Callable] = None):
         """Асинхронная пауза через reactor"""
